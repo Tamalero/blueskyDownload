@@ -355,7 +355,7 @@ def ProcessingVideo(getpagetitle,finalm3u8, webDriver, path):
         code1 = '"'+ finalm3u8 +'"'
         fullPath = os.path.join((path), (getpagetitle))
         fullPathPathmode = Path(fullPath)
-        command = shlex.split('ffmpeg -y -i "'+finalm3u8+'" -c copy '+fullPath + " -loglevel error") 
+        command = shlex.split('ffmpeg -y -i "'+finalm3u8+'" -c copy "'+fullPath +'" -loglevel error') 
         #command = ['ffmpeg','-y','-i', '"'+ finalm3u8 +'"','c copy',getpagetitle,'-hide_banner -report']
         print(" Checking if file exists, if it does it will be skipped")
         if fullPathPathmode.is_file():
