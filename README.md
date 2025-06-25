@@ -13,7 +13,7 @@
 - Internet Connection.
 - This script was tested in Fedora based Nobara Linux ( 42 ) on x86 intel cpu. 
 - an unlocked bluesky account. Unlocked as with the limitations removed ( For example, if you want to download adult videos from the platform, not judging mind you. You will need to enable adult content on the account itself) 🤷‍♂️
-- The script by requires english on all tools. That includes Chrome, Selenium/Python.
+- The script requires english on all tools. That includes Chrome, Selenium/Python. Also on the bluesky account. Translations might affect the Xpath and CSS selectors.
 - fill config.ini with your credentials in plain text.
 - Optional: add the urls, one per line inside url_list.txt
 
