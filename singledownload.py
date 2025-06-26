@@ -36,7 +36,7 @@ options.enable_bidi = True
 options.add_argument("----mute-audio")
 options.add_argument("--auto-open-devtools-for-tabs")
 options.add_argument("--window-size=3840,2160")
-#options.add_argument("--headless")
+options.add_argument("--headless")
 #options.add_argument("--start-maximized")
 
 ua = UserAgent()
@@ -49,13 +49,21 @@ options.set_capability('goog:loggingPrefs', {'performance': 'ALL'}) #critical to
 
 def mainProgram(Website, username, password, webDriver, path): #main program if run as a single video
     StartLogin(Website, username, password, webDriver)
-    DownloadVideo(Website, webDriver)
-    fileList_finalm3u8 = CreatingFileList(webDriver)
+    DownVideo =DownloadVideo(Website, webDriver)
+    if DownVideo == True:
+        print("Site Login or File detection Failed, check the error output")
+        webDriver.quit()
+        sys.exit()
+    fileList_finalm3u8 = CreatingFileList(webDriver, Website)
+    if fileList_finalm3u8 == True:
+        print("Video Download Failed, check the error output")
+        webDriver.quit()
+        sys.exit()
     titleList = CreatingTitle(webDriver)
     
     completedProcess = ProcessingVideo(titleList,fileList_finalm3u8, webDriver, path)
     if completedProcess == True:
-        print("Video Download Completed")
+        print("Video Download completed, check the directory for the output.")
         webDriver.quit()
         sys.exit()
     else:
@@ -90,9 +98,17 @@ def setLoop(urlList, username, password, webDriver, path): #main porogram if run
             webDriver.window_handles.remove(second_window)        
             #webDriver.close()
             webDriver.switch_to.window(original_window)
+            print("Video #" + str(urlList.index(url)+1) + " out of " + str(len(urlList))+" Failed.\nVideo: " + url + " could not be downloaded. Continuing to next video: " +str(urlList.index(url)+2))  
+            time.sleep(1)
             continue
         time.sleep(1)
-        finalm3u8=CreatingFileList(webDriver)
+        finalm3u8=CreatingFileList(webDriver, WebSite)
+        if finalm3u8 == True:
+            webDriver.window_handles.remove(second_window)
+            webDriver.switch_to.window(original_window)
+            print("Video #" + str(urlList.index(url)+1) + " out of " + str(len(urlList))+" Failed.\nVideo: " + url + " could not be downloaded. Continuing to next video: " +str(urlList.index(url)+2))
+            time.sleep(1)
+            continue
         time.sleep(1)
         getpagetitle = CreatingTitle(webDriver)
         time.sleep(1)
@@ -189,16 +205,13 @@ def StartLogin(WebSite, username, password, webDriver):
                 webDriver.get("https://bsky.app/notifications")
                 
             
-            time.sleep(3)
+            time.sleep(2)
             try:
                 #if webDriver.find_element(By.PARTIAL_LINK_TEXT, value="Sign in").is_displayed():
                 logcode = webDriver.find_element(By.CSS_SELECTOR, value="#root > div > div > div > div > div > div > div > div:nth-child(1) > div:nth-child(2) > button:nth-child(2)")
                 logcode.click()
-                time.sleep(2)
-                    
-                    
-                
-                
+                time.sleep(1)
+                   
             except Exception:
                 print(traceback.format_exc())
                 print("Error trying to find to open the login form.")
@@ -262,92 +275,122 @@ def DownloadVideo(WebSite,webDriver):
     try :        
         webDriver.get(WebSite)
         time.sleep(3)
-        if webDriver.find_element(By.XPATH, value="//*[text()='Post not found']").is_displayed():
-            print("Error: url has been removed or not found")
-            skipUrl = True
-            return skipUrl
-        elif webDriver.find_element(By.XPATH, value="//*[@aria-label='Press to retry']").is_displayed():
-            print("Error: url has been removed or not found")
-            skipUrl = True
-            return skipUrl
-        elif webDriver.find_element(By.XPATH, value="//*[text()='Unable to resolve handle']").is_displayed():
-            print("Error: url has been removed or not found")
-            skipUrl = True
-            return skipUrl
-        elif webDriver.find_element(By.XPATH, value="//*[text()='Internal Server Error']").is_displayed():
-            print("Error: url has been removed or not found")
-            skipUrl = True
-            return skipUrl
+        try: 
+            if webDriver.find_element(By.XPATH, value="//*[text()='Post not found']").is_displayed():
+                print("Error: url has been removed or not found")
+                skipUrl = True
+                return skipUrl
+        except:
+            pass
+        try:
+            if webDriver.find_element(By.XPATH, value="//*[@aria-label='Press to retry']").is_displayed():
+                print("Error: url has been removed or not found")
+                skipUrl = True
+                return skipUrl
+        except:
+            pass
+        try: 
+            if webDriver.find_element(By.XPATH, value="//*[text()='Unable to resolve handle']").is_displayed():
+                print("Error: url has been removed or not found")
+                skipUrl = True
+                return skipUrl
+        except:
+            pass
+        try: 
+            if webDriver.find_element(By.XPATH, value="//*[text()='Internal Server Error']").is_displayed():
+                print("Error: url has been removed or not found")
+                skipUrl = True
+                return skipUrl
+        except:
+            pass
+        
+        #m = webDriver.find_element(By.XPATH, value="//*[text()='Post not found']")
         #webDriver.find_element(By.XPATH, value="//*[text()='Post not found']") #works
         #m = webDriver.find_element(By.XPATH, value="//*[@aria-label='Press to retry']") #works
-        
-    except Exception:
         print("Phase 6-0 - URL is valid")
-    
+    except Exception:
+        #print(traceback.format_exc())
+        print("Phase 6-0 - Unknown error during URL validation.")   
    
     try : 
         
         if webDriver.find_element(By.XPATH, value="//*[text()='Adult Content']").is_displayed():
-            print("Error: File is Adult Content, enable adult content to be able to see this content")
+            print("Error: File is Adult Content, enable adult content to be able to see this content. Trying next video.")
             skipUrl = True
             return skipUrl
+        else:
+            print("Phase 6-2 - Adult content ok")
     except Exception:
-        print("Phase 6-2 - Access levels ok")
+        #print(traceback.format_exc())
+        print("Phase 6-2 - No adult warning detected.")
             
    
     try:
+        time.sleep(1)
+        webDriver.refresh()
+        time.sleep(2)
+        webDriver.execute_script("window.scrollTo(0, 250);")
+        time.sleep(1)
+        webDriver.execute_script("window.scrollTo(0, 50);")
+        time.sleep(1)
+        print("Trying ways to activate video source...")
         try: 
-            webDriver.refresh()
-            time.sleep(1)
-            webDriver.execute_script("window.scrollTo(0, document.body.scrollHeight/2;")
+            
             #elemvid = WebDriverWait(webDriver, 3).until(EC.presence_of_element_located((By.CSS_SELECTOR, ".r-sa2ff0 > div:nth-child(3) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(1) > div:nth-child(2) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > button:nth-child(1)")))
             try: 
-                elemvid = WebDriverWait(webDriver, 3).until(EC.presence_of_element_located(By.XPATH, value="//*[contains(@aria-label),'Unmute video']")).click()
-            except:
-                pass
-            try: 
-                elemvid = webDriver.find_element(By.CSS_SELECTOR, "video:nth-child(1)").click()
-            except:
-                pass
-        except:
-            print(" Video element not found, trying to continue...")
-            
-        try: 
-            elembox = webDriver.find_element(By.PARTIAL_LINK_TEXT, value="Play video")
-            if elembox.is_displayed():
-                elembox.click()
-        except Exception:
-            pass
-            #print("Trying partial text method.")
-            
-        try: 
-            elembox = webDriver.find_element(By.XPATH, value="/html/body/div[1]/div/div/div/div/main/div/div/div/div/div/div[2]/div[2]/div[2]/div/div[3]/div/div/div[2]/div[1]/div[2]/div/div/div/div/div/div[1]/div/div[1]/button")
-            if elembox.is_displayed():
-                elembox.click()
-        except Exception:
-            pass
-            #print("Trying XPath method.")                
-                  
+                try:
+                    
+                    if webDriver.find_element(By.XPATH, value="//*[@aria-label='Unmute video']").is_displayed():
+                        webDriver.find_element(By.XPATH, value="//*[@aria-label='Unmute video']").click()
+                        print("Video element found")
+                        
+                except:
+                    pass
+                try:
+                    
+                    if  webDriver.find_element(By.XPATH, value="//*[@aria-label='Play video']").is_displayed():
+                        webDriver.find_element(By.XPATH, value="//*[@aria-label='Play video']").click()
+                        print("Video element found")
+                except:
+                    pass
                 
-        
-        try: 
-            elembox = webDriver.find_element(By.PARTIAL_LINK_TEXT, value="Unmute video")
-            if elembox.is_displayed():
-                elembox.click()
-        except Exception:
+                try:                   
+                    if webDriver.find_element(By.XPATH, value="/html/body/div[1]/div/div/div/div/main/div/div/div/div/div/div[2]/div[2]/div[2]/div/div[3]/div/div/div[2]/div[1]/div[2]/div/div/div/div/div/div[1]/div/div[1]/button").is_displayed():
+                        webDriver.find_element(By.XPATH, value="/html/body/div[1]/div/div/div/div/main/div/div/div/div/div/div[2]/div[2]/div[2]/div/div[3]/div/div/div[2]/div[1]/div[2]/div/div/div/div/div/div[1]/div/div[1]/button").click()
+                        print("Video element found")
+                except:
+                    pass
+                try:
+                    
+                    if webDriver.find_element(By.CSS_SELECTOR, "video:nth-child(1)").is_displayed():
+                        webDriver.find_element(By.CSS_SELECTOR, "video:nth-child(1)").click()
+                        print("Video element found")
+                except:
+                    pass
+                else:
+                    print("Video element not found, skipping url: "+ WebSite)
+                    skipUrl = True
+                    return skipUrl
+                
+            except:
+                print("Video element might not be visible, trying to continue...")
+           
+        except:
             pass
-            #print("Trying partial text method #2.")  
-        time.sleep(3)
-    except Exception:
+            #print(" Video element not found, skipping url: "+ WebSite)
+            #skipUrl = True
+            #return skipUrl
+    
+        
+        
+    except:
         print(traceback.format_exc())
         print("Fatal error trying to find video element, check video url and try again.")
-        webDriver.close() 
-        webDriver.quit()
-        sys.exit()
+        
 
 
 
-def CreatingFileList(webDriver):
+def CreatingFileList(webDriver, webSite):
     print("Phase 7: Creating File List")
     
     def getLogs(webDriver):
@@ -377,6 +420,10 @@ def CreatingFileList(webDriver):
                 print("Addresses: " + str(addresses))
                 print ("Returning Addresses...")
                 return addresses
+            else:
+                print("No source video file detected, skipping url: "+ webSite)
+                skipUrl = True
+                return skipUrl
                     
 
             print ("Phase 7-2: return addresses clean up")
@@ -390,6 +437,12 @@ def CreatingFileList(webDriver):
         return addresses
     
     addresses = getLogs(webDriver)
+    if addresses == True:
+        print("Error, element file elements, data not found or error when processing")
+        skipUrl = True
+        return skipUrl
+    else:
+        pass
     def sizeOfList(addresses):
 
         print (" Address: " + addresses[len(addresses)-1].split("m3u8",1)[0] + "m3u8")
@@ -401,9 +454,10 @@ def CreatingFileList(webDriver):
             print("Error, element file elements, data not found or error when processing")
             webDriver.close()
             webDriver.quit()
-            sys.exit()
+            sys.exit()    
         else:    
             finalm3u8 = sizeOfList(addresses)                
+                
     except Exception:
         print(traceback.format_exc())
         print("Error on final phase of creating file list. The addresses list is possible empty")
@@ -445,7 +499,7 @@ def ProcessingVideo(getpagetitle,finalm3u8, webDriver, path):
             print(" File exists on disk, Location: " + fullPath+" \n Skipping download and muxing...")
             return True
         else:
-            print("File dnot found, downloading...") 
+            print("File found, downloading...") 
             print("Phase 8-2: Running ffmpeg with the following command: "+ command.__str__())
             subprocess.run(command)
             print("Phase 8: Finished - Check script directory for the final output, generated file: " + str(pathlib.Path().resolve()) + fullPath)
