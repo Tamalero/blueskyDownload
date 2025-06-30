@@ -37,6 +37,8 @@ options.add_argument("----mute-audio")
 options.add_argument("--auto-open-devtools-for-tabs")
 options.add_argument("--window-size=3840,2160")
 options.add_argument("--headless")
+options.add_argument('--no-sandbox')
+options.add_argument('--disable-dev-shm-usage') 
 #options.add_argument("--start-maximized")
 
 ua = UserAgent()
@@ -102,8 +104,20 @@ def setLoop(urlList, username, password, webDriver, path): #main porogram if run
             time.sleep(1)
             continue
         time.sleep(1)
-        finalm3u8=CreatingFileList(webDriver, WebSite)
-        if finalm3u8 == True:
+        try: 
+            finalm3u8=CreatingFileList(webDriver, WebSite)
+        except Exception:
+            webDriver.quit()
+            time.sleep(1)
+            setChromeDriver()
+            time.sleep(1)
+            webDriver.get("https://bsky.app/notifications")
+            time.sleep(1)
+            StartLogin(WebSite, username, password, webDriver)
+            time.sleep(1)
+            continue
+            
+        if finalm3u8 == bool(True):
             webDriver.window_handles.remove(second_window)
             webDriver.switch_to.window(original_window)
             print("Video #" + str(urlList.index(url)+1) + " out of " + str(len(urlList))+" Failed.\nVideo: " + url + " could not be downloaded. Continuing to next video: " +str(urlList.index(url)+2))
@@ -111,10 +125,23 @@ def setLoop(urlList, username, password, webDriver, path): #main porogram if run
             continue
         time.sleep(1)
         getpagetitle = CreatingTitle(webDriver)
+        if getpagetitle == bool(True):
+            try:
+                webDriver.quit()
+                time.sleep(1)
+                webDriver = setChromeDriver()
+                StartLogin(WebSite, username, password, webDriver)
+                continue
+            except Exception:
+                time.sleep(1)
+                webDriver = setChromeDriver()
+                StartLogin(WebSite, username, password, webDriver)
+                continue
+                
         time.sleep(1)
         completedProcess = ProcessingVideo(getpagetitle,finalm3u8, webDriver, path)
         time.sleep(1)
-        if completedProcess == True:
+        if completedProcess == bool(True):
             print("Video #" + str(urlList.index(url)+1) + " out of " + str(len(urlList))+" Downloaded.    ")
             listOfFiles.append(url)
         else:
@@ -460,27 +487,30 @@ def CreatingFileList(webDriver, webSite):
                 
     except Exception:
         print(traceback.format_exc())
-        print("Error on final phase of creating file list. The addresses list is possible empty")
-        webDriver.close()
-        webDriver.quit()
-        sys.exit()
+        print("Error on final phase of creating file list. The addresses list is possible empty. Continuing with the next file file")
+        return True
+       
     print ("Phase 7-3: return addresses to single string")
     #global finalm3u8
     return finalm3u8
 
     
 def CreatingTitle(webDriver):
-    
-    getAddress = webDriver.current_url.split("/post/",1)[1]
-    sanitizeTitle1 = (webDriver.current_url.split("/",5)[4])
-    if "." in sanitizeTitle1:
-        sanitizeTitle1 = sanitizeTitle1.split(".",1)[0]
-    sanitizeTitle =   re.sub('[^A-Za-z0-9]+', '', sanitizeTitle1)  
-    #sanitizeTitle = (webDriver.title.split(":",1)[0]).translate(str.maketrans('', '', ':. -"()!@#$\''))
-    getpagetitle = sanitizeTitle + "_" + getAddress + ".mp4"
-    # getpagetitle = (webDriver.title.split("@",1)[0]).translate(str.maketrans('', '', ':. -"()!@#$\''))+ "_" + getAddress + ".mp4"
-    print(" Generated title: " + getpagetitle)
-    return getpagetitle  
+    try: 
+        getAddress = webDriver.current_url.split("/post/",1)[1]
+        sanitizeTitle1 = (webDriver.current_url.split("/",5)[4])
+        if "." in sanitizeTitle1:
+            sanitizeTitle1 = sanitizeTitle1.split(".",1)[0]
+        sanitizeTitle =   re.sub('[^A-Za-z0-9]+', '', sanitizeTitle1)  
+        #sanitizeTitle = (webDriver.title.split(":",1)[0]).translate(str.maketrans('', '', ':. -"()!@#$\''))
+        getpagetitle = sanitizeTitle + "_" + getAddress + ".mp4"
+        # getpagetitle = (webDriver.title.split("@",1)[0]).translate(str.maketrans('', '', ':. -"()!@#$\''))+ "_" + getAddress + ".mp4"
+        print(" Generated title: " + getpagetitle)
+        return getpagetitle  
+    except Exception:
+        
+        print("Erorr when handling the file title, Chrome browser could have crashed. Trying again")
+        return True
 
 def ProcessingVideo(getpagetitle,finalm3u8, webDriver, path):
     print("Phase 8: Processing Video")
