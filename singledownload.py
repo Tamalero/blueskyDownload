@@ -8,10 +8,9 @@ import random
 import shlex
 import subprocess
 import pathlib
+import configparser
 
-from selenium.webdriver.chrome.options import Options
-import logging
-from selenium.webdriver.common.by import By
+
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support.ui import WebDriverWait
@@ -19,7 +18,18 @@ from pathlib import Path
 from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
 from fake_useragent import UserAgent
 from selenium.webdriver.support import expected_conditions as EC
-
+from selenium.webdriver.chrome.options import Options
+import logging
+from selenium.webdriver.common.by import By
+from selenium.common.exceptions import (
+    WebDriverException,
+    NoSuchWindowException,
+    TimeoutException,
+    InvalidSessionIdException,
+    SessionNotCreatedException,
+    UnexpectedAlertPresentException,
+    StaleElementReferenceException
+)
 
 import logging
 
@@ -35,7 +45,7 @@ options.add_argument("--log-level=3")
 options.enable_bidi = True
 options.add_argument("----mute-audio")
 options.add_argument("--auto-open-devtools-for-tabs")
-options.add_argument("--window-size=3840,2160")
+options.add_argument("--window-size=2560,1440")
 options.add_argument("--headless")
 options.add_argument('--no-sandbox')
 options.add_argument('--disable-dev-shm-usage') 
@@ -50,6 +60,7 @@ options.set_capability('goog:loggingPrefs', {'performance': 'ALL'}) #critical to
 
 
 def mainProgram(Website, username, password, webDriver, path): #main program if run as a single video
+    
     StartLogin(Website, username, password, webDriver)
     DownVideo =DownloadVideo(Website, webDriver)
     if DownVideo == True:
@@ -72,6 +83,8 @@ def mainProgram(Website, username, password, webDriver, path): #main program if 
         print("Download Failed, check the error output")
         webDriver.quit()
         sys.exit()
+
+
 def setLoop(urlList, username, password, webDriver, path): #main porogram if run as a list
     WebSite = "https://bsky.app/notifications"
     #webDriver.get("https://bsky.app/notifications")
@@ -154,21 +167,25 @@ def setLoop(urlList, username, password, webDriver, path): #main porogram if run
     print("Video Collection Download Completed. Total of " + str(len(listOfFiles)) + " files downloaded.")
     webDriver.quit()
     sys.exit()
+
+def randomTimer():
+    timer = random.randint(1, 5)
+    return timer
+
 def checkFileConfig():
     print("Checking Configuration File...")    
     try:
-        with open('config.ini') as f: 
-            content = f.readlines()
-            if content == []:
-                print("Fatal Error, config.ini is empty. Please check config.ini file. \n and run again. \n")
-                sys.exit()
-            else: 
-                username = content[0]
-                password = content[1]
-            return username, password
+        config = configparser.ConfigParser()
+        config.read("config.ini")
+
+        USERNAME = config.get("credentials", "username")
+        PASSWORD = config.get("credentials", "password")
+        return USERNAME, PASSWORD
             
     except Exception:
+        print(traceback.format_exc())
         print("Config file not found. Please create a config.ini file and add your username and password. \n")
+        webdriver.close()
         sys.exit()
 def CheckUrlList():
     print("Checking URL List File...")    
@@ -205,6 +222,7 @@ def setChromeDriver():
     webDriver.script.add_console_message_handler(log_entries.append)
     wait = WebDriverWait(webDriver, 8)
     webDriver.implicitly_wait(8)
+    webDriver.maximize_window()
     return webDriver
 
     print("Phase 2: Set defaults...")
@@ -216,92 +234,137 @@ def StartLogin(WebSite, username, password, webDriver):
             #webDriver.implicitly_wait(3)
         GetWebSite()
         time.sleep(2)    
-        def LoginSite(WebSite, webDriver):        
-                
-            print("Phase 5: Trying to login..."  )
-            
-            
-            #print("Phase 5: Trying to login...  Checking status: " + hasLoggedIn.__str__())
-            try:
-                webDriver.get("https://bsky.app/notifications")
-                time.sleep(1)
-                
-            except Exception:
-                webDriver.switch_to.window(webDriver.window_handles[0])
-                time.sleep(1)
-                webDriver.get("https://bsky.app/notifications")
-                
-            
-            time.sleep(2)
-            try:
-                #if webDriver.find_element(By.PARTIAL_LINK_TEXT, value="Sign in").is_displayed():
-                logcode = webDriver.find_element(By.CSS_SELECTOR, value="#root > div > div > div > div > div > div > div > div:nth-child(1) > div:nth-child(2) > button:nth-child(2)")
-                logcode.click()
-                time.sleep(1)
-                   
-            except Exception:
-                print(traceback.format_exc())
-                print("Error trying to find to open the login form.")
-                webDriver.quit()
-                sys.exit()
-                
-                
-            #    webDriver.find_element(By.PARTIAL_LINK_TEXT, value="Close active dialogue").is_displayed():
-            #    adultcode =webDriver.find_element(By.CSS_SELECTOR,value="#root > div > div > div > div > div > div:nth-child(2)")
-            #    adultcode.click()
-            #    SendLogin()     
-        LoginSite(WebSite, webDriver)    
-                
-                                
-        def SendLogin(username, password, webDriver):
-            try: 
-                time.sleep(1)
-                currentAddress = webDriver.current_url 
-                elem = webDriver.find_element(By.CSS_SELECTOR, value="#root > div > div > div > div > div > div > div > div > div.css-g5y9jx.r-dta0w2 > div > div > div > div > div:nth-child(2) > div.css-g5y9jx > div:nth-child(1) > input")
-                elem.send_keys(username)
-                time.sleep(1)
-                elem2 = webDriver.find_element(By.CSS_SELECTOR, value="#root > div > div > div > div > div > div > div > div > div.css-g5y9jx.r-dta0w2 > div > div > div > div > div:nth-child(2) > div.css-g5y9jx > div:nth-child(2) > input")
-                elem2.send_keys(password)
-                time.sleep(0.500)
-                try:
-                    elem3 = webDriver.find_element(By.CSS_SELECTOR('div#root > div > div > div > div > div > div > div > div > div:nth-of-type(2) > div > div > div > div > div:nth-of-type(4)'))
-                    elem3.click()
-                   
-                except Exception:
-                    pass
-                try :
-                    time.sleep(2)
-                    if webDriver.find_element(By.XPATH, value="//*[text()='Incorrect username or password']").is_displayed():
-                        print("Error: Incorrect username or password, check credentials and try again.")
-                        webDriver.quit()
-                        sys.exit()
-                        
-                except Exception:
-                    print("Login OK...")
-                
-            except Exception:
-                time.sleep(2)
-                webDriver.quit()
-                print(traceback.format_exc())
-                print("Error, Unable to login or no login elements found")
-                sys.exit()  
-            except NameError:
-                # hasLoggedIn = False
-                pass    
-                
-            # hasLoggedIn =  True
-            # return hasLoggedIn
-        SendLogin(username, password, webDriver)
+        try:  
+            LoginSite(WebSite, webDriver)
+            SendLogin(username, password, webDriver)
+        except: 
+            print("Unrecoverable Error: Loginsite or Sendlogin modules not working: ", e)
+            webDriver.close()
+            sys.exit()
+
+
     else:
         print("Error: Website url is malformed")
         webDriver.quit()
         sys.exit()
+def LoginSite(WebSite, webDriver):        
+                
+    print("Phase 5: Trying to login..."  )
+    
+    
+    #print("Phase 5: Trying to login...  Checking status: " + hasLoggedIn.__str__())
+    try:
+        webDriver.get("https://bsky.app/notifications")
+        time.sleep(randomTimer())
         
+    except Exception:
+        webDriver.switch_to.window(webDriver.window_handles[0])
+        time.sleep(1)
+        webDriver.get("https://bsky.app/notifications")
+        
+    
+    time.sleep(2)
+    try:
+        #if webDriver.find_element(By.PARTIAL_LINK_TEXT, value="Sign in").is_displayed():
+        logcode = webDriver.find_element(By.XPATH, value="//*[text()='Sign in']")
+        logcode.click()
+        time.sleep(randomTimer())
+            
+    except Exception:
+        print(traceback.format_exc())
+        print("Error trying to find to open the login form.")
+        webDriver.quit()
+        sys.exit()
+        
+        
+    #    webDriver.find_element(By.PARTIAL_LINK_TEXT, value="Close active dialogue").is_displayed():
+    #    adultcode =webDriver.find_element(By.CSS_SELECTOR,value="#root > div > div > div > div > div > div:nth-child(2)")
+    #    adultcode.click()
+    #    SendLogin()     
+            #    
+def SendLogin(username, password, webDriver):
+    try: 
+        time.sleep(1)
+        currentAddress = webDriver.current_url 
+        elem = webDriver.find_element(By.CSS_SELECTOR, value="div.css-g5y9jx > div:nth-child(1) > input")
+        elem.send_keys(username)
+        time.sleep(1)
+        elem2 = webDriver.find_element(By.CSS_SELECTOR, value="div.css-g5y9jx > div:nth-child(2) > input")
+        elem2.send_keys(password)
+        time.sleep(0.500)
+        try:
+            elem3 = webDriver.find_element(By.XPATH, value="//*[text()='Next']")
+            elem3.click()
+            
+        except Exception:
+            print("Error, cannot find login elements or they have changed...")
+            webDriver.close()
+            sys.exit()
+        try :
+            time.sleep(2)
+            if webDriver.find_element(By.XPATH, value="//*[text()='Incorrect username or password']").is_displayed():
+                print("Error: Incorrect username or password, check credentials and try again.")
+                webDriver.quit()
+                sys.exit()
+                
+        except Exception:
+            print("Login OK...")
+        
+    except Exception:
+        time.sleep(2)
+        webDriver.quit()
+        print(traceback.format_exc())
+        print("Error, Unable to login or no login elements found")
+        sys.exit()  
+    except NameError:
+        hasLoggedIn = False
+        pass    
+        
+    # hasLoggedIn =  True
+    # return hasLoggedIn
+    # 
+                 
 def DownloadVideo(WebSite,webDriver):
     print("Phase 6: Checking content status on: " + WebSite)
+    try: 
+            webDriver.refresh()
+            time.sleep(randomTimer())
+            webDriver.execute_script("scrollTo(0, 250);")
+            time.sleep(1)
+            webDriver.execute_script("scrollTo(0, 50);")
+            time.sleep(1)
+    except WebDriverException as e:
+        print("WebDriver crashed or not present: ", e)
+        print("Trying again..")
+        try:
+            webDriver = setChromeDriver()
+            LoginSite(WebSite, webDriver)
+            SendLogin(username, password, webDriver)
+            original_window = webDriver.current_window_handle
+            time.sleep(1)
+            webDriver.execute_script("window.open('about:blank','secondtab');")
+            time.sleep(1)
+            webDriver.switch_to.window("secondtab")
+            #time.sleep(1)
+            second_window = webDriver.current_window_handle
+            #print("Main tab: "+ original_window + "\n Second tab: " + second_window)
+            listofTabs = webDriver.window_handles
+            webDriver.get(WebSite)
+            time.sleep(randomTimer())
+            webDriver.execute_script("window;.scrollTo(0, 250);")
+            time.sleep(1)
+            webDriver.execute_script("window.scrollTo(0, 50);")
+        except:
+            print("Unrecoverable Error: Loginsite or Sendlogin modules not working: ", e)
+            webDriver.close()
+            sys.exit()
+    except Exception as e:
+        print("Unknown error with crashed Browser or webdriver: ", e)
+
+
     try :        
         webDriver.get(WebSite)
-        time.sleep(3)
+        time.sleep(randomTimer())
         try: 
             if webDriver.find_element(By.XPATH, value="//*[text()='Post not found']").is_displayed():
                 print("Error: url has been removed or not found")
@@ -354,13 +417,46 @@ def DownloadVideo(WebSite,webDriver):
    
     try:
         time.sleep(1)
-        webDriver.refresh()
-        time.sleep(2)
-        webDriver.execute_script("window.scrollTo(0, 250);")
+        try: 
+            webDriver.refresh()
+            time.sleep(randomTimer())
+            webDriver.execute_script("scrollTo(0, 250);")
+            time.sleep(1)
+            webDriver.execute_script("scrollTo(0, 50);")
+            time.sleep(1)
+        except WebDriverException as e:
+            print("WebDriver crashed or not present: ", e)
+            print("Trying again..")
+            try:
+                webDriver = setChromeDriver()
+                LoginSite(WebSite, webDriver)
+                SendLogin(username, password, webDriver)
+                original_window = webDriver.current_window_handle
+                time.sleep(1)
+                webDriver.execute_script("window.open('about:blank','secondtab');")
+                time.sleep(1)
+                webDriver.switch_to.window("secondtab")
+                #time.sleep(1)
+                second_window = webDriver.current_window_handle
+                #print("Main tab: "+ original_window + "\n Second tab: " + second_window)
+                listofTabs = webDriver.window_handles
+                webDriver.get(WebSite)
+                time.sleep(randomTimer())
+                webDriver.execute_script("window;.scrollTo(0, 250);")
+                time.sleep(1)
+                webDriver.execute_script("window.scrollTo(0, 50);")
+            except:
+                print("Unrecoverable Error: Loginsite or Sendlogin modules not working: ", e)
+                webDriver.close()
+                sys.exit()
+        except Exception as e:
+            print("Unknown error with crashed Browser or webdriver: ", e)
+
+        
         time.sleep(1)
-        webDriver.execute_script("window.scrollTo(0, 50);")
-        time.sleep(1)
+
         print("Trying ways to activate video source...")
+     
         try: 
             
             #elemvid = WebDriverWait(webDriver, 3).until(EC.presence_of_element_located((By.CSS_SELECTOR, ".r-sa2ff0 > div:nth-child(3) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(1) > div:nth-child(2) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > button:nth-child(1)")))
@@ -394,6 +490,12 @@ def DownloadVideo(WebSite,webDriver):
                         print("Video element found")
                 except:
                     pass
+                try: 
+                    if webDriver.find_element(By.XPATH, value="//*[text()='Sexually Suggestive']").is_displayed(): 
+                        webDriver.find_element(By.XPATH, value="//*[text()='Sexually Suggestive']").click()
+                        print("Video element found behind suggestive filter")
+                except: 
+                    pass
                 else:
                     print("Video element not found, skipping url: "+ WebSite)
                     skipUrl = True
@@ -403,6 +505,7 @@ def DownloadVideo(WebSite,webDriver):
                 print("Video element might not be visible, trying to continue...")
            
         except:
+            
             pass
             #print(" Video element not found, skipping url: "+ WebSite)
             #skipUrl = True
@@ -415,7 +518,13 @@ def DownloadVideo(WebSite,webDriver):
         print("Fatal error trying to find video element, check video url and try again.")
         
 
-
+def is_driver_alive(webDriver):
+    try:
+        # Send a tiny ping command to the browser
+        webDriver.execute_script("return 1")
+        return True
+    except (WebDriverException, NoSuchWindowException, TimeoutException):
+        return False
 
 def CreatingFileList(webDriver, webSite):
     print("Phase 7: Creating File List")
