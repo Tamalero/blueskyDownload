@@ -10,12 +10,14 @@ Two entry points: a CLI (`apitest.py`) and a PyQt6 GUI (`gui.py`).
 - **Python:** system Python 3 (no virtualenv — all deps via pacman)  
 - **XDG config:** `~/.config/blueskydownload/config.ini`  
 - **Default output:** `~/Pictures/BlueSkyDownload`
+- **Latest release:** v1.0.0 — https://github.com/Tamalero/blueskyDownload/releases/tag/v1.0.0
 
 ---
 
-## Repository state (as of 2025-05-05)
+## Repository state (as of 2026-05-05)
 
 Git is initialized. Remote is `https://github.com/Tamalero/blueskyDownload.git`, branch `main`.
+Latest commit: `460c8b0` — "Add progress bars, live preview, error highlighting, saved UI state, and responsive layout"
 
 Committed files:
 
@@ -45,48 +47,84 @@ Obsolete files still on disk (not tracked by git): `apitest_backup.py`, `apitest
 | Package | Status |
 |---|---|
 | `python-requests` | installed |
-| `python-tqdm` | installed (added this session) |
+| `python-tqdm` | installed |
 | `python-pyqt6` | installed |
 | `yt-dlp` | installed |
 | `ffmpeg` | installed |
-| `appimagetool-bin` | installed (added this session, AUR) |
+| `appimagetool-bin` | installed (AUR) |
+| `zsyncmake` | installed (bundled with zsync package) |
 
 ---
 
 ## AppImage
 
-A Type 2 AppImage was built:
+Type 2 AppImage with embedded GitHub update metadata:
 
 ```
-BlueSkyDownloader-x86_64.AppImage   (939 KB, squashfs/zstd, ELF runtime)
+BlueSkyDownloader-x86_64.AppImage       (939 KB, squashfs/zstd, ELF runtime)
+BlueSkyDownloader-x86_64.AppImage.zsync (4.9 KB, delta-update index)
 ```
 
-Located in the project directory. Not committed to git (excluded by `.gitignore`).
-Should be attached to a GitHub Release manually if distribution is needed.
+Both files are in the project directory. Not committed to git (excluded by `.gitignore`).
+Attached to the GitHub release v1.0.0.
 
-AppDir structure used:
+### AppDir structure
+
 ```
 BlueSkyDownloader.AppDir/
 ├── AppRun                  (bash launcher → python3 usr/bin/gui.py)
 ├── blueskydownload.desktop (Exec=blueskydownloader, Icon=blueskydownload)
-├── blueskydownload.png     (256×256, blue #0085ff with "BSky" text, imagemagick)
+├── blueskydownload.png     (256×256, blue #0085ff with "BSky" text)
 └── usr/bin/
     ├── apitest.py
     └── gui.py
 ```
 
 The AppImage is thin — it bundles only the Python scripts and uses system Python/pacman packages.
-Rebuild command:
+
+### Rebuild command (always use this form to keep update metadata embedded)
+
 ```bash
-ARCH=x86_64 appimagetool BlueSkyDownloader.AppDir BlueSkyDownloader-x86_64.AppImage
+cp apitest.py gui.py BlueSkyDownloader.AppDir/usr/bin/
+rm -f BlueSkyDownloader-x86_64.AppImage
+ARCH=x86_64 appimagetool \
+  -u "gh-releases-zsync|Tamalero|blueskyDownload|latest|BlueSkyDownloader-x86_64.AppImage.zsync" \
+  BlueSkyDownloader.AppDir BlueSkyDownloader-x86_64.AppImage
 ```
+
+`appimagetool` auto-runs `zsyncmake` when `-u` is provided, so the `.zsync` file is generated
+automatically alongside the AppImage.
+
+### Auto-update (end-user)
+
+```bash
+AppImageUpdate BlueSkyDownloader-x86_64.AppImage
+```
+
+Requires [AppImageUpdate](https://github.com/AppImageCommunity/AppImageUpdate) to be installed.
+The AppImage's embedded update URL resolves to the latest release on GitHub.
+
+---
+
+## GitHub releases
+
+| Tag | Assets |
+|---|---|
+| `v1.0.0` | `BlueSkyDownloader-x86_64.AppImage`, `BlueSkyDownloader-x86_64.AppImage.zsync`, source zip/tar.gz |
+
+When making a new release:
+1. Rebuild AppImage with the `-u` flag above (zsync auto-generated)
+2. Commit and push code changes to `main`
+3. `gh release create vX.Y.Z --title "..." --notes "..." BlueSkyDownloader-x86_64.AppImage BlueSkyDownloader-x86_64.AppImage.zsync`
+
+The source code zip/tar.gz (the "Python version") is auto-attached by GitHub for every release.
 
 ---
 
 ## Desktop launcher
 
 `blueskydownload.desktop` is in the project root and committed to git.
-It is **not yet installed** to `~/.local/share/applications/` (user declined during this session).
+It is **not yet installed** to `~/.local/share/applications/` (user declined).
 
 To install:
 ```bash
@@ -121,9 +159,11 @@ All functions are importable (no module-level side effects). `__main__` block ha
 |---|---|
 | `CONFIG_FILE` | `Path` to `~/.config/blueskydownload/config.ini` |
 | `DEFAULT_DOWNLOAD_DIR` | `~/Pictures/BlueSkyDownload` |
-| `load_config()` / `save_config()` | XDG config read/write |
+| `load_config()` | Reads full config (credentials + last_run sections) |
+| `save_config(handle, pw)` | Read-modify-write — preserves `[last_run]` section |
+| `save_ui_state(dict)` | Writes `[last_run]` section without touching credentials |
 | `bluesky_login(id, pw)` | POST `com.atproto.server.createSession` → returns session dict |
-| `get_did_for_handle(handle, jwt)` | Resolve handle → DID string |
+| `get_did_for_handle(handle, jwt)` | Only called for third-party targets; own DID comes from session |
 | `extract_images_from_post(post)` | Returns list of `fullsize` CDN URLs |
 | `extract_videos_from_post(post)` | Returns list of HLS playlist URLs |
 | `format_created_at(post)` | `YYYYMMDD_HHMMSS` string from `record.createdAt` |
@@ -131,29 +171,89 @@ All functions are importable (no module-level side effects). `__main__` block ha
 | `_fetch_feed(url, params, ...)` | Shared pagination loop (tqdm, cursor, dedup) |
 | `fetch_likes_media(jwt, did, ...)` | Wraps `_fetch_feed` → `getActorLikes` |
 | `fetch_user_gallery(jwt, did, ...)` | Wraps `_fetch_feed` → `getAuthorFeed?filter=posts_with_media` |
-| `download_media(items, dir, ...)` | Downloads images via `requests`, videos via `yt-dlp` subprocess |
+| `download_media(items, dir, ...)` | Downloads images via streaming `requests`, videos via `yt-dlp` |
 
-`fetch_*` and `download_media` accept:
-- `log_fn=print` — replaced by `self.log.emit` in the GUI worker
-- `cancel_fn=None` — GUI passes `lambda: self._stop` for the cancel button
+#### `download_media` callback parameters
 
-tqdm is auto-disabled when stdout is not a tty (i.e. when called from the GUI thread).
+| Parameter | Type | Purpose |
+|---|---|---|
+| `log_fn` | `str → None` | Normal log messages (default: `print`) |
+| `error_fn` | `str → None` | Per-file error messages; defaults to `log_fn` |
+| `cancel_fn` | `() → bool` | Download stops when this returns `True` |
+| `progress_fn` | `(int, int) → None` | Called with `(done_count, total_count)` after each file |
+| `file_progress_fn` | `(str, int, int) → None` | Called with `(filename, bytes_done, bytes_total)` during streaming |
+| `preview_fn` | `str → None` | Called with the saved file path after each successful download |
+
+Images are downloaded with `stream=True`; Content-Type extension fix happens before streaming starts
+so the filename passed to `file_progress_fn` is always the final correct name.
+`total_size=0` (no Content-Length header) signals the GUI to show an indeterminate progress bar.
+
+tqdm is auto-disabled when `sys.stdout.isatty()` is False (GUI context).
 
 ### `gui.py` — PyQt6 frontend
 
 Imports `apitest as bsky`. No logic lives here — only UI wiring.
 
-`DownloadWorker(QThread)`:
-- `run()` calls `bsky.bluesky_login → get_did_for_handle → fetch_* → download_media`
-- Emits `log(str)` and `done(bool, str)` signals
-- `cancel()` sets `self._stop = True`; `download_media` checks it between posts
+#### `DownloadWorker(QThread)`
 
-`MainWindow(QMainWindow)`:
-- Credentials auto-loaded from XDG config on startup via `bsky.load_config()`
-- Credentials saved on every Start click via `bsky.save_config()`
-- Mode dropdown: `"Liked Posts"` / `"User Gallery"`
-- Media dropdown: `"Both"` / `"Images Only"` / `"Videos Only"`
-- Pages spinbox: 1–200, default 25
+Signals:
+
+| Signal | Signature | Purpose |
+|---|---|---|
+| `log` | `str` | Normal log line |
+| `error` | `str` | Error log line (rendered red in GUI) |
+| `done` | `(bool, str)` | Download finished: `(success, message)` |
+| `progress` | `(int, int)` | `(done_count, total_count)` for overall bar |
+| `file_progress` | `(str, int, int)` | `(filename, bytes_done, bytes_total)` for current-file bar |
+| `preview` | `str` | File path of the latest successfully saved file |
+
+`cancel()` sets `self._stop = True`; `download_media` checks it between posts via `cancel_fn`.
+
+#### `MainWindow(QMainWindow)` — UI layout
+
+```
+Credentials Group      (handle, app password)
+Options Group          (mode, target handle, media type, pages)
+Output Folder Group    (path + Browse button)
+Start / Cancel buttons
+Progress Group         (total bar + count label, file bar + filename/size label)
+QSplitter (horizontal, non-collapsible):
+  ├── Preview Group    (QLabel — scales with panel, KeepAspectRatio)
+  └── Log Group        (QTextEdit — read-only, monospace, HTML-colored)
+StatusBar
+```
+
+#### Splitter ratio — screen-responsive
+
+Set once in `showEvent`, maintained on resize via stretch factors:
+
+| Screen height | Preview | Log | Stretch factors |
+|---|---|---|---|
+| ≤ 1080 px (1080p and below) | 30 % | 70 % | 3 : 7 |
+| > 1080 px (1440p, 4K, etc.) | 50 % | 50 % | 1 : 1 |
+
+Uses `QApplication.primaryScreen().size().height()` (physical pixels).
+User can still drag the splitter handle freely after launch.
+
+#### Preview scaling
+
+`self._current_preview_pixmap` stores the original `QPixmap`.
+`_rescale_preview()` re-scales it to the label's current size with `KeepAspectRatio + SmoothTransformation`.
+Called from both `_update_preview` (new file) and `resizeEvent` (window resize).
+Non-image files (videos) show `"▶ Video"` text instead.
+
+#### Config persistence
+
+- Credentials (`handle`, `app_password`) saved to `[credentials]` on every Start click.
+- UI state (`mode`, `target`, `media`, `pages`, `output`) saved to `[last_run]` on every Start click.
+- Both sections loaded on startup. `save_config` and `save_ui_state` both use read-modify-write
+  so they never clobber each other's section.
+
+#### Log coloring
+
+- Normal messages: `html.escape(msg)` appended as plain text.
+- Error messages: wrapped in `<span style="color: #ff5555;">…</span>`.
+- `done` signal: "Cancelled." uses plain text; any other failure message uses red.
 
 ### Output filename format
 
@@ -162,8 +262,7 @@ Imports `apitest as bsky`. No logic lives here — only UI wiring.
 {author_handle}_{YYYYMMDD_HHMMSS}_{post_id}_v{index}.mp4      # videos
 ```
 
-Image extension is parsed from the `@jpeg` / `@png` suffix in the CDN URL, with a fallback to the
-`Content-Type` response header.
+Image extension: parsed from `@jpeg` / `@png` suffix in CDN URL; falls back to `Content-Type` header.
 
 ---
 
@@ -173,10 +272,15 @@ Base URL: `https://bsky.social/xrpc/`
 
 | Endpoint | Used for |
 |---|---|
-| `com.atproto.server.createSession` | Login, returns `accessJwt` |
-| `com.atproto.identity.resolveHandle` | Handle → DID |
+| `com.atproto.server.createSession` | Login — returns `accessJwt`, `handle`, `did` |
+| `com.atproto.identity.resolveHandle` | Handle → DID (only called for third-party targets) |
 | `app.bsky.feed.getActorLikes` | Liked posts feed (paginated) |
 | `app.bsky.feed.getAuthorFeed` | User feed filtered to `posts_with_media` |
+
+**Important:** `createSession` accepts email or handle as identifier. The response always contains
+the resolved `handle` and `did` — these are used directly rather than calling `resolveHandle` for
+the logged-in user's own account. `resolveHandle` only accepts AT handles (not emails), so it is
+never called with the login identifier.
 
 ---
 
@@ -185,7 +289,7 @@ Base URL: `https://bsky.social/xrpc/`
 - No cross-run deduplication beyond checking if the output filename already exists on disk.
 - `yt-dlp` invoked as a subprocess — must be on `PATH`.
 - Bluesky rate limits not explicitly handled; 0.5–2 s random delay between posts is a soft guard.
-- `DAYS_BACK` constant exists in old backups but is not implemented in the current script — all
-  paginated results are downloaded regardless of date.
+- Video downloads show an indeterminate progress bar (yt-dlp subprocess gives no byte-level callback).
 - AppImage is a thin wrapper — target machine must have `python-pyqt6`, `python-requests`,
-  `python-tqdm`, `yt-dlp` installed.
+  `python-tqdm`, `yt-dlp`, `ffmpeg` installed via pacman.
+- `DAYS_BACK` filtering is not implemented — all paginated results are downloaded regardless of date.
