@@ -17,17 +17,19 @@ Two entry points: a CLI (`apitest.py`) and a PyQt6 GUI (`gui.py`).
 ## Repository state (as of 2026-05-05)
 
 Git is initialized. Remote is `https://github.com/Tamalero/blueskyDownload.git`, branch `main`.
-Latest commit: `721f733` — "Add download summary and configurable post delay"
+Latest commit: `aeb9df3` — "Add GitHub Actions Windows build and app icon"
 
 Committed files:
 
 ```
+.github/workflows/build-windows.yml  ← CI: builds BlueSkyDownloader.exe on Windows runner
 .gitignore
 CLAUDE.md
 README.md
 apitest.py            ← main CLI + shared library
-gui.py                ← PyQt6 GUI (imports apitest)
+blueskydownload.png   ← app icon (256×256), committed here for CI access
 blueskydownload.desktop
+gui.py                ← PyQt6 GUI (imports apitest)
 imagedownload.sh
 requirements.txt
 ```
@@ -106,19 +108,72 @@ The AppImage's embedded update URL resolves to the latest release on GitHub.
 
 ---
 
+## Windows build
+
+A standalone `BlueSkyDownloader.exe` is produced automatically by GitHub Actions for every release.
+No Python or dependencies need to be installed on the end-user's machine.
+
+### How it works
+
+`.github/workflows/build-windows.yml` runs on `windows-latest`:
+1. Installs Python 3.12 + `pyinstaller pyqt6 requests tqdm pillow`
+2. Converts `blueskydownload.png` → `blueskydownload.ico` (multi-res: 16/32/48/256 px) via Pillow
+3. Runs PyInstaller: `--onefile --windowed --collect-all PyQt6` — produces a single portable exe
+4. Uploads `dist/BlueSkyDownloader.exe` to the GitHub release via `softprops/action-gh-release`
+
+### Triggers
+
+| Event | Behaviour |
+|---|---|
+| New release published | Builds automatically and attaches exe to that release |
+| `workflow_dispatch` | Manual trigger; requires `tag_name` input (e.g. `v1.1.0`) |
+
+Manual trigger command:
+```bash
+gh workflow run "Build Windows Executable" --repo Tamalero/blueskyDownload --ref main -f tag_name=vX.Y.Z
+```
+
+### PyInstaller flags used
+
+| Flag | Reason |
+|---|---|
+| `--onefile` | Single portable exe — no install needed |
+| `--windowed` | Suppresses the console window on launch |
+| `--collect-all PyQt6` | Bundles all Qt plugins including `qwindows.dll` (platform plugin required for GUI) |
+
+`--onefile` extracts to a persistent temp folder on first launch; subsequent launches reuse it.
+
+### Windows yt-dlp dependency
+
+`yt-dlp` is called as a subprocess and is **not bundled** in the exe. Windows users who want
+video downloads must install it separately:
+```
+winget install yt-dlp.yt-dlp
+winget install Gyan.FFmpeg
+```
+Image downloads work without it.
+
+### Cross-compilation note
+
+The Windows exe **cannot** be built on Linux. The GitHub Actions `windows-latest` runner is
+required. Do not attempt to build the exe locally with Wine — it is not supported.
+
+---
+
 ## GitHub releases
 
 | Tag | Assets |
 |---|---|
-| `v1.1.0` | `BlueSkyDownloader-x86_64.AppImage`, `BlueSkyDownloader-x86_64.AppImage.zsync`, source zip/tar.gz |
+| `v1.1.0` | `BlueSkyDownloader.exe`, `BlueSkyDownloader-x86_64.AppImage`, `BlueSkyDownloader-x86_64.AppImage.zsync`, source zip/tar.gz |
 | `v1.0.0` | `BlueSkyDownloader-x86_64.AppImage`, `BlueSkyDownloader-x86_64.AppImage.zsync`, source zip/tar.gz |
 
 When making a new release:
 1. Rebuild AppImage with the `-u` flag above (zsync auto-generated)
 2. Commit and push code changes to `main`
 3. `gh release create vX.Y.Z --title "..." --notes "..." BlueSkyDownloader-x86_64.AppImage BlueSkyDownloader-x86_64.AppImage.zsync`
+4. The Windows `.exe` is **automatically built and attached** by GitHub Actions within ~5 minutes of the release being published (no manual step needed)
 
-The source code zip/tar.gz (the "Python version") is auto-attached by GitHub for every release.
+The source code zip/tar.gz is auto-attached by GitHub for every release.
 
 ---
 
@@ -327,10 +382,11 @@ never called with the login identifier.
 ## Known limitations
 
 - No cross-run deduplication beyond checking if the output filename already exists on disk.
-- `yt-dlp` invoked as a subprocess — must be on `PATH`.
+- `yt-dlp` invoked as a subprocess — must be on `PATH` on all platforms; not bundled in the Windows exe.
 - Video downloads show an indeterminate progress bar (yt-dlp subprocess gives no byte-level callback).
 - AppImage is a thin wrapper — target machine must have `python-pyqt6`, `python-requests`,
   `python-tqdm`, `yt-dlp`, `ffmpeg` installed via pacman.
+- Windows exe first launch may take several seconds (PyInstaller --onefile extraction to temp dir).
 - `DAYS_BACK` filtering is not implemented — all paginated results are downloaded regardless of date.
 
 ---
