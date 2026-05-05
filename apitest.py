@@ -270,12 +270,23 @@ Examples:
         session = bluesky_login(my_handle, my_password)
     except Exception as e:
         print(f"Login failed: {e}")
+        if "401" in str(e) or "Unauthorized" in str(e):
+            print("Tip: if your handle gives 401, try logging in with your email address instead.")
         sys.exit(1)
 
-    jwt    = session["accessJwt"]
-    target = args.user or my_handle
-    print(f"Resolving {target}…")
-    target_did = get_did_for_handle(target, jwt)
+    jwt = session["accessJwt"]
+    # session always contains the resolved handle and DID regardless of whether
+    # the user logged in with an email address or a .bsky.social handle
+    my_actual_handle = session["handle"]
+    my_did           = session["did"]
+
+    if args.user:
+        target = args.user
+        print(f"Resolving {target}…")
+        target_did = get_did_for_handle(target, jwt)
+    else:
+        target     = my_actual_handle
+        target_did = my_did  # already in the session, no extra API call needed
 
     if args.mode == "likes":
         print(f"Mode: liked posts of {target}")

@@ -34,11 +34,19 @@ class DownloadWorker(QThread):
             self.log.emit(f"Logging in as {cfg['handle']}…")
             session = bsky.bluesky_login(cfg["handle"], cfg["password"])
             jwt = session["accessJwt"]
-            self.log.emit("Login OK.")
+            # Use handle and DID from the session — works whether the user
+            # logged in with an email address or a .bsky.social handle
+            my_handle = session["handle"]
+            my_did    = session["did"]
+            self.log.emit(f"Login OK ({my_handle}).")
 
-            target = cfg["target"] or cfg["handle"]
-            self.log.emit(f"Resolving {target}…")
-            did = bsky.get_did_for_handle(target, jwt)
+            if cfg["target"]:
+                target = cfg["target"]
+                self.log.emit(f"Resolving {target}…")
+                did = bsky.get_did_for_handle(target, jwt)
+            else:
+                target = my_handle
+                did    = my_did  # already in the session
 
             if cfg["mode"] == "Liked Posts":
                 items = bsky.fetch_likes_media(
