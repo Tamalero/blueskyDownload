@@ -27,7 +27,18 @@ Available as a **GUI app**, a **CLI tool**, and a portable **AppImage** for Arch
 
 ## Requirements
 
-Install dependencies via pacman on Arch/CachyOS:
+### Windows
+Download `BlueSkyDownloader.exe` from [Releases](https://github.com/Tamalero/blueskyDownload/releases) — no Python or dependencies needed.
+
+For **video downloads**, install `yt-dlp` and add it to your PATH:
+```
+winget install yt-dlp.yt-dlp
+winget install Gyan.FFmpeg
+```
+Images download without them.
+
+### Linux (Arch/CachyOS)
+Install dependencies via pacman:
 
 ```bash
 sudo pacman -S python-requests python-tqdm python-pyqt6 yt-dlp ffmpeg
@@ -107,6 +118,12 @@ python apitest.py --help
 | `--handle` | your handle | from config |
 | `--password` | your app password | from config |
 
+### Windows Executable
+
+Download `BlueSkyDownloader.exe` from [Releases](https://github.com/Tamalero/blueskyDownload/releases) and double-click to run. No installation required.
+
+> First launch may take a few seconds while the app unpacks itself.
+
 ### AppImage (Arch/CachyOS)
 
 Download `BlueSkyDownloader-x86_64.AppImage` from [Releases](https://github.com/Tamalero/blueskyDownload/releases), then:
@@ -169,6 +186,7 @@ Videos are downloaded via `yt-dlp` using the HLS playlist URL exposed by the API
 - Download summary on completion: images count, videos count, total files, total size in MB/KB
 - Configurable post delay: Fixed (single value) or Variable (random min–max range)
 - Delay setting is saved and restored between sessions
+- Windows 11 compatible standalone `.exe` (via GitHub Actions / PyInstaller)
 
 ### v1.0.0
 - Initial release

@@ -1,0 +1,54 @@
+name: Build Windows Executable
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Release tag to attach the Windows exe to (e.g. v1.1.0)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install build dependencies
+        run: pip install pyinstaller pyqt6 requests tqdm pillow
+
+      - name: Convert icon PNG to ICO
+        run: |
+          python -c "
+          from PIL import Image
+          img = Image.open('blueskydownload.png').convert('RGBA')
+          img.save('blueskydownload.ico', sizes=[(16,16),(32,32),(48,48),(256,256)])
+          "
+
+      - name: Build Windows executable
+        run: >-
+          pyinstaller
+          --onefile
+          --windowed
+          --name BlueSkyDownloader
+          --icon blueskydownload.ico
+          --collect-all PyQt6
+          gui.py
+
+      - name: Upload exe to GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.release.tag_name || github.event.inputs.tag_name }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          files: dist/BlueSkyDownloader.exe
