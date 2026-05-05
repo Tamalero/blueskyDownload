@@ -1,3 +1,4 @@
+import html
 import sys
 from pathlib import Path
 
@@ -6,10 +7,10 @@ from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QFormLayout,
     QGroupBox, QLabel, QLineEdit, QPushButton,
     QComboBox, QSpinBox, QFileDialog,
-    QTextEdit, QStatusBar,
+    QTextEdit, QStatusBar, QProgressBar, QSplitter, QSizePolicy,
 )
-from PyQt6.QtCore import QThread, pyqtSignal
-from PyQt6.QtGui import QFont
+from PyQt6.QtCore import QThread, pyqtSignal, Qt
+from PyQt6.QtGui import QFont, QPixmap
 
 import apitest as bsky
 
@@ -17,8 +18,12 @@ import apitest as bsky
 # ── Background worker ──────────────────────────────────────────────────────────
 
 class DownloadWorker(QThread):
-    log  = pyqtSignal(str)
-    done = pyqtSignal(bool, str)   # (success, message)
+    log           = pyqtSignal(str)
+    error         = pyqtSignal(str)
+    done          = pyqtSignal(bool, str)
+    progress      = pyqtSignal(int, int)        # (done_count, total)
+    file_progress = pyqtSignal(str, int, int)   # (filename, bytes_done, bytes_total)
+    preview       = pyqtSignal(str)             # filepath
 
     def __init__(self, cfg: dict):
         super().__init__()
@@ -33,9 +38,7 @@ class DownloadWorker(QThread):
         try:
             self.log.emit(f"Logging in as {cfg['handle']}…")
             session = bsky.bluesky_login(cfg["handle"], cfg["password"])
-            jwt = session["accessJwt"]
-            # Use handle and DID from the session — works whether the user
-            # logged in with an email address or a .bsky.social handle
+            jwt       = session["accessJwt"]
             my_handle = session["handle"]
             my_did    = session["did"]
             self.log.emit(f"Login OK ({my_handle}).")
@@ -46,7 +49,7 @@ class DownloadWorker(QThread):
                 did = bsky.get_did_for_handle(target, jwt)
             else:
                 target = my_handle
-                did    = my_did  # already in the session
+                did    = my_did
 
             if cfg["mode"] == "Liked Posts":
                 items = bsky.fetch_likes_media(
@@ -63,7 +66,11 @@ class DownloadWorker(QThread):
                 cfg["output"],
                 media_type=media_map[cfg["media"]],
                 log_fn=self.log.emit,
+                error_fn=self.error.emit,
                 cancel_fn=lambda: self._stop,
+                progress_fn=lambda d, t: self.progress.emit(d, t),
+                file_progress_fn=lambda fn, d, t: self.file_progress.emit(fn, d, t),
+                preview_fn=self.preview.emit,
             )
 
             if self._stop:
@@ -81,10 +88,12 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("BlueSky Downloader")
-        self.setMinimumWidth(580)
+        self.setMinimumWidth(620)
         self.worker: DownloadWorker | None = None
+        self._current_preview_pixmap: QPixmap | None = None
         self._build_ui()
         self._load_saved_credentials()
+        self._load_ui_state()
 
     # ── UI construction ────────────────────────────────────────────────────────
 
@@ -99,7 +108,13 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._options_group())
         layout.addWidget(self._output_group())
         layout.addLayout(self._buttons_row())
-        layout.addWidget(self._log_group())
+        layout.addWidget(self._progress_group())
+
+        self._bottom_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self._bottom_splitter.setChildrenCollapsible(False)
+        self._bottom_splitter.addWidget(self._preview_group())
+        self._bottom_splitter.addWidget(self._log_group())
+        layout.addWidget(self._bottom_splitter, 1)
 
         self.statusbar = QStatusBar()
         self.setStatusBar(self.statusbar)
@@ -163,6 +178,59 @@ class MainWindow(QMainWindow):
         h.addWidget(self.btn_cancel)
         return h
 
+    def _progress_group(self) -> QGroupBox:
+        g = QGroupBox("Progress")
+        v = QVBoxLayout(g)
+        v.setSpacing(4)
+
+        h_overall = QHBoxLayout()
+        lbl_total = QLabel("Total:")
+        lbl_total.setFixedWidth(42)
+        self.pb_overall = QProgressBar()
+        self.pb_overall.setTextVisible(False)
+        self.pb_overall.setFixedHeight(16)
+        self.lbl_overall_count = QLabel("–")
+        self.lbl_overall_count.setFixedWidth(90)
+        self.lbl_overall_count.setAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        )
+        h_overall.addWidget(lbl_total)
+        h_overall.addWidget(self.pb_overall, 1)
+        h_overall.addWidget(self.lbl_overall_count)
+
+        h_current = QHBoxLayout()
+        lbl_file = QLabel("File:")
+        lbl_file.setFixedWidth(42)
+        self.pb_current = QProgressBar()
+        self.pb_current.setTextVisible(False)
+        self.pb_current.setFixedHeight(16)
+        h_current.addWidget(lbl_file)
+        h_current.addWidget(self.pb_current, 1)
+
+        self.lbl_current_file = QLabel("")
+        self.lbl_current_file.setFont(QFont("Monospace", 8))
+
+        v.addLayout(h_overall)
+        v.addLayout(h_current)
+        v.addWidget(self.lbl_current_file)
+        return g
+
+    def _preview_group(self) -> QGroupBox:
+        g = QGroupBox("Preview")
+        g.setMinimumWidth(150)
+        v = QVBoxLayout(g)
+        self.lbl_preview = QLabel("No preview")
+        self.lbl_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_preview.setMinimumSize(100, 150)
+        self.lbl_preview.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
+        self.lbl_preview.setStyleSheet(
+            "background-color: #1a1a2e; color: #666; border-radius: 4px;"
+        )
+        v.addWidget(self.lbl_preview)
+        return g
+
     def _log_group(self) -> QGroupBox:
         g = QGroupBox("Log")
         v = QVBoxLayout(g)
@@ -172,6 +240,34 @@ class MainWindow(QMainWindow):
         self.te_log.setMinimumHeight(160)
         v.addWidget(self.te_log)
         return g
+
+    # ── Window events ──────────────────────────────────────────────────────────
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._apply_splitter_ratio()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._rescale_preview()
+
+    def _apply_splitter_ratio(self):
+        screen = QApplication.primaryScreen()
+        screen_h = screen.size().height() if screen else 1080
+
+        if screen_h <= 1080:
+            preview_ratio = 0.30
+            self._bottom_splitter.setStretchFactor(0, 3)
+            self._bottom_splitter.setStretchFactor(1, 7)
+        else:
+            preview_ratio = 0.50
+            self._bottom_splitter.setStretchFactor(0, 1)
+            self._bottom_splitter.setStretchFactor(1, 1)
+
+        total = self._bottom_splitter.width()
+        if total > 0:
+            preview_w = int(total * preview_ratio)
+            self._bottom_splitter.setSizes([preview_w, total - preview_w])
 
     # ── Slots ──────────────────────────────────────────────────────────────────
 
@@ -195,19 +291,99 @@ class MainWindow(QMainWindow):
         if cfg.has_option("credentials", "app_password"):
             self.le_pass.setText(cfg.get("credentials", "app_password"))
 
+    def _load_ui_state(self):
+        cfg = bsky.load_config()
+        if not cfg.has_section("last_run"):
+            return
+        lr = cfg["last_run"]
+        if "mode" in lr:
+            idx = self.cb_mode.findText(lr["mode"])
+            if idx >= 0:
+                self.cb_mode.setCurrentIndex(idx)
+        if "target" in lr:
+            self.le_target.setText(lr["target"])
+        if "media" in lr:
+            idx = self.cb_media.findText(lr["media"])
+            if idx >= 0:
+                self.cb_media.setCurrentIndex(idx)
+        if "pages" in lr:
+            try:
+                self.sp_pages.setValue(int(lr["pages"]))
+            except ValueError:
+                pass
+        if "output" in lr:
+            self.le_output.setText(lr["output"])
+
+    def _save_ui_state(self):
+        bsky.save_ui_state({
+            "mode":   self.cb_mode.currentText(),
+            "target": self.le_target.text().strip(),
+            "media":  self.cb_media.currentText(),
+            "pages":  str(self.sp_pages.value()),
+            "output": self.le_output.text().strip(),
+        })
+
     def _append_log(self, msg: str):
-        self.te_log.append(msg)
+        self.te_log.append(html.escape(msg))
+        self._scroll_log()
+
+    def _append_error(self, msg: str):
+        self.te_log.append(
+            f'<span style="color: #ff5555;">{html.escape(msg)}</span>'
+        )
+        self._scroll_log()
+
+    def _scroll_log(self):
         sb = self.te_log.verticalScrollBar()
         sb.setValue(sb.maximum())
+
+    def _update_progress(self, done: int, total: int):
+        self.pb_overall.setMaximum(max(total, 1))
+        self.pb_overall.setValue(done)
+        self.lbl_overall_count.setText(f"{done} / {total} files")
+
+    def _update_file_progress(self, fname: str, done: int, total: int):
+        if total > 0:
+            self.pb_current.setMaximum(total)
+            self.pb_current.setValue(done)
+            if total >= 1_048_576:
+                size_str = f"{done / 1_048_576:.1f} / {total / 1_048_576:.1f} MB"
+            else:
+                size_str = f"{done / 1024:.1f} / {total / 1024:.1f} KB"
+            self.lbl_current_file.setText(f"{fname}  ({size_str})")
+        else:
+            self.pb_current.setMaximum(0)
+            self.pb_current.setValue(0)
+            self.lbl_current_file.setText(fname)
+
+    def _rescale_preview(self):
+        if self._current_preview_pixmap and not self._current_preview_pixmap.isNull():
+            size = self.lbl_preview.size()
+            scaled = self._current_preview_pixmap.scaled(
+                size,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            self.lbl_preview.setPixmap(scaled)
+
+    def _update_preview(self, filepath: str):
+        pixmap = QPixmap(filepath)
+        if not pixmap.isNull():
+            self._current_preview_pixmap = pixmap
+            self._rescale_preview()
+        else:
+            self._current_preview_pixmap = None
+            self.lbl_preview.setText("▶ Video")
 
     def _start(self):
         handle   = self.le_handle.text().strip()
         password = self.le_pass.text().strip()
         if not handle or not password:
-            self._append_log("⚠  Handle and app password are required.")
+            self._append_error("Handle and app password are required.")
             return
 
         bsky.save_config(handle, password)
+        self._save_ui_state()
 
         cfg = {
             "handle":   handle,
@@ -220,13 +396,26 @@ class MainWindow(QMainWindow):
         }
 
         self.te_log.clear()
+        self.pb_overall.setMaximum(100)
+        self.pb_overall.setValue(0)
+        self.pb_current.setMaximum(100)
+        self.pb_current.setValue(0)
+        self.lbl_overall_count.setText("–")
+        self.lbl_current_file.setText("")
+        self._current_preview_pixmap = None
+        self.lbl_preview.setText("No preview")
+
         self.btn_start.setEnabled(False)
         self.btn_cancel.setEnabled(True)
         self.statusbar.showMessage("Downloading…")
 
         self.worker = DownloadWorker(cfg)
         self.worker.log.connect(self._append_log)
+        self.worker.error.connect(self._append_error)
         self.worker.done.connect(self._on_done)
+        self.worker.progress.connect(self._update_progress)
+        self.worker.file_progress.connect(self._update_file_progress)
+        self.worker.preview.connect(self._update_preview)
         self.worker.start()
 
     def _cancel(self):
@@ -238,8 +427,14 @@ class MainWindow(QMainWindow):
     def _on_done(self, ok: bool, msg: str):
         self.btn_start.setEnabled(True)
         self.btn_cancel.setEnabled(False)
-        self._append_log(msg)
+        if ok or msg == "Cancelled.":
+            self._append_log(msg)
+        else:
+            self._append_error(msg)
         self.statusbar.showMessage(msg)
+        self.lbl_current_file.setText("")
+        self.pb_current.setMaximum(100)
+        self.pb_current.setValue(0)
 
 
 # ── Entry point ────────────────────────────────────────────────────────────────

@@ -37,8 +37,22 @@ def load_config():
 
 def save_config(handle, app_password):
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    cfg = configparser.ConfigParser()
-    cfg["credentials"] = {"handle": handle, "app_password": app_password}
+    cfg = load_config()
+    if not cfg.has_section("credentials"):
+        cfg.add_section("credentials")
+    cfg.set("credentials", "handle", handle)
+    cfg.set("credentials", "app_password", app_password)
+    with open(CONFIG_FILE, "w") as f:
+        cfg.write(f)
+
+
+def save_ui_state(state: dict):
+    cfg = load_config()
+    if not cfg.has_section("last_run"):
+        cfg.add_section("last_run")
+    for k, v in state.items():
+        cfg.set("last_run", k, str(v))
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     with open(CONFIG_FILE, "w") as f:
         cfg.write(f)
 
@@ -168,15 +182,37 @@ def _download_video(url, output_template):
 
 
 def download_media(items, download_dir, media_type="both",
-                   log_fn=print, cancel_fn=None):
+                   log_fn=print, error_fn=None, cancel_fn=None,
+                   progress_fn=None, file_progress_fn=None, preview_fn=None):
     """
     Download images and/or videos from a list of feed items.
 
-    media_type: "images" | "videos" | "both"
-    cancel_fn:  optional callable; download stops when it returns True
+    media_type:       "images" | "videos" | "both"
+    error_fn:         called for per-file errors; defaults to log_fn
+    cancel_fn:        optional callable; download stops when it returns True
+    progress_fn:      called with (done_count, total_count) after each file
+    file_progress_fn: called with (filename, bytes_done, bytes_total) during streaming
+    preview_fn:       called with (filepath) after each successful save
     """
+    if error_fn is None:
+        error_fn = log_fn
+
     os.makedirs(download_dir, exist_ok=True)
     tty = sys.stdout.isatty()
+
+    # Pre-count total media files for the overall progress bar
+    total = 0
+    for item in items:
+        post = item.get("post", {})
+        if media_type in ("images", "both"):
+            total += len(extract_images_from_post(post))
+        if media_type in ("videos", "both"):
+            total += len(extract_videos_from_post(post))
+
+    if progress_fn:
+        progress_fn(0, total)
+
+    done_count = 0
 
     for item in tqdm(items, desc="Downloading", unit="post", disable=not tty):
         if cancel_fn and cancel_fn():
@@ -195,30 +231,62 @@ def download_media(items, download_dir, media_type="both",
                 fname = f"{handle}_{ts}_{pid}_{i}.{ext}"
                 fpath = os.path.join(download_dir, fname)
                 if os.path.exists(fpath):
+                    done_count += 1
+                    if progress_fn:
+                        progress_fn(done_count, total)
                     continue
                 try:
-                    r = requests.get(img_url, timeout=30)
+                    r = requests.get(img_url, stream=True, timeout=60)
                     r.raise_for_status()
-                    # Correct extension from Content-Type when URL has no @ext suffix
+                    total_size = int(r.headers.get("Content-Length", 0))
+                    # Fix extension from Content-Type when URL has no @ext suffix
                     if "@" not in img_url:
                         ct  = r.headers.get("Content-Type", "image/jpeg")
                         ext = ct.split("/")[-1].split(";")[0].strip()
                         fname = f"{handle}_{ts}_{pid}_{i}.{ext}"
                         fpath = os.path.join(download_dir, fname)
+                    if file_progress_fn:
+                        file_progress_fn(fname, 0, total_size)
+                    downloaded_bytes = 0
                     with open(fpath, "wb") as f:
-                        f.write(r.content)
+                        for chunk in r.iter_content(chunk_size=8192):
+                            if chunk:
+                                f.write(chunk)
+                                downloaded_bytes += len(chunk)
+                                if file_progress_fn:
+                                    file_progress_fn(fname, downloaded_bytes, total_size)
                     log_fn(f"Saved image: {fname}")
+                    done_count += 1
+                    if progress_fn:
+                        progress_fn(done_count, total)
+                    if preview_fn:
+                        preview_fn(fpath)
                 except Exception as e:
-                    log_fn(f"Image failed: {e}")
+                    error_fn(f"Image failed: {e}")
+                    done_count += 1
+                    if progress_fn:
+                        progress_fn(done_count, total)
 
         if media_type in ("videos", "both"):
             for i, vid_url in enumerate(extract_videos_from_post(post), 1):
+                fname   = f"{handle}_{ts}_{pid}_v{i}.mp4"
                 out_tpl = os.path.join(download_dir, f"{handle}_{ts}_{pid}_v{i}.%(ext)s")
+                if file_progress_fn:
+                    file_progress_fn(fname, 0, 0)
                 try:
                     _download_video(vid_url, out_tpl)
-                    log_fn(f"Saved video: {handle}_{ts}_{pid}_v{i}.mp4")
+                    log_fn(f"Saved video: {fname}")
+                    done_count += 1
+                    if progress_fn:
+                        progress_fn(done_count, total)
+                    actual_path = os.path.join(download_dir, fname)
+                    if preview_fn and os.path.exists(actual_path):
+                        preview_fn(actual_path)
                 except Exception as e:
-                    log_fn(f"Video failed: {e}")
+                    error_fn(f"Video failed: {e}")
+                    done_count += 1
+                    if progress_fn:
+                        progress_fn(done_count, total)
 
         time.sleep(random.uniform(0.5, 2.0))
 
@@ -275,8 +343,6 @@ Examples:
         sys.exit(1)
 
     jwt = session["accessJwt"]
-    # session always contains the resolved handle and DID regardless of whether
-    # the user logged in with an email address or a .bsky.social handle
     my_actual_handle = session["handle"]
     my_did           = session["did"]
 
@@ -286,7 +352,7 @@ Examples:
         target_did = get_did_for_handle(target, jwt)
     else:
         target     = my_actual_handle
-        target_did = my_did  # already in the session, no extra API call needed
+        target_did = my_did
 
     if args.mode == "likes":
         print(f"Mode: liked posts of {target}")
