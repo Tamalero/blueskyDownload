@@ -1,0 +1,14 @@
+config.ini
+credentials.txt
+data.json
+backup.tar.gz
+urls.txt
+url_list.txt
+.01/
+__pycache__/
+*.pyc
+*.pyo
+downloaded_images/
+Downloads/
+*.AppImage
+*.AppDir/

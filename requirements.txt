@@ -1,0 +1,11 @@
+# pip install -r requirements.txt
+#
+# Arch/CachyOS (preferred — use pacman to avoid venv):
+#   sudo pacman -S python-requests python-tqdm python-pyqt6 yt-dlp
+#
+# yt-dlp and ffmpeg must also be available on PATH for video downloads:
+#   sudo pacman -S yt-dlp ffmpeg
+
+requests
+tqdm
+PyQt6

@@ -1,0 +1,12 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=BlueSky Downloader
+GenericName=Media Downloader
+Comment=Download liked images and videos from Bluesky
+Exec=python %k/../gui.py
+Icon=network-wireless-symbolic
+Terminal=false
+Categories=Network;FileTransfer;
+Keywords=bluesky;download;images;videos;social;
+StartupWMClass=bluesky-downloader
