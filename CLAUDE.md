@@ -1,178 +1,191 @@
-# BlueSkyDownload
+# BlueSkyDownload — Claude Context
 
-A personal Python toolset for downloading liked images and videos from Bluesky (bsky.social) using the AT Protocol API.
+## Project at a glance
 
-## Project Purpose
+Personal Python tool to download media (images + videos) from Bluesky using the AT Protocol REST API.
+Two entry points: a CLI (`apitest.py`) and a PyQt6 GUI (`gui.py`).
 
-Downloads media (images and videos) from:
-- A user's **liked posts** feed
-- Any user's **gallery** (their posts that contain media)
+- **GitHub:** https://github.com/Tamalero/blueskyDownload  
+- **Platform:** Arch/CachyOS, x86_64  
+- **Python:** system Python 3 (no virtualenv — all deps via pacman)  
+- **XDG config:** `~/.config/blueskydownload/config.ini`  
+- **Default output:** `~/Pictures/BlueSkyDownload`
 
 ---
 
-## File Overview
+## Repository state (as of 2025-05-05)
 
-### Active
+Git is initialized. Remote is `https://github.com/Tamalero/blueskyDownload.git`, branch `main`.
 
-| File | Description |
+Committed files:
+
+```
+.gitignore
+CLAUDE.md
+README.md
+apitest.py            ← main CLI + shared library
+gui.py                ← PyQt6 GUI (imports apitest)
+blueskydownload.desktop
+imagedownload.sh
+requirements.txt
+```
+
+**Not committed** (covered by `.gitignore`): `config.ini`, `credentials.txt`, `data.json`,
+`backup.tar.gz`, `urls.txt`, `url_list.txt`, `downloaded_images/`, `Downloads/`, `*.AppImage`,
+`*.AppDir/`, `__pycache__/`
+
+Obsolete files still on disk (not tracked by git): `apitest_backup.py`, `apitest_backup2.py`,
+`downloadlikes.py`, `singledownload.py`, `generic.py`, `newversion.py`, `newcookies.py`,
+`logintest.py`, `test.py`, `startenv.sh`.
+
+---
+
+## System dependencies (all installed via pacman)
+
+| Package | Status |
 |---|---|
-| `apitest.py` | Core logic + CLI entry point. AT Protocol API calls, media extraction, downloading. |
-| `gui.py` | PyQt6 GUI entry point. Imports from `apitest.py`. Runs downloads in a background thread. |
-| `blueskydownload.desktop` | FreeDesktop app launcher for Arch/CachyOS. |
-| `config.ini` | Legacy local config (credentials superseded by XDG path — see below). |
+| `python-requests` | installed |
+| `python-tqdm` | installed (added this session) |
+| `python-pyqt6` | installed |
+| `yt-dlp` | installed |
+| `ffmpeg` | installed |
+| `appimagetool-bin` | installed (added this session, AUR) |
 
-### Obsolete / Archive
+---
 
-Earlier iterations kept for reference only.
+## AppImage
 
-| File | Description |
-|---|---|
-| `apitest_backup.py` | API version — images only, no video. |
-| `apitest_backup2.py` | Used `atproto` SDK; images only. |
-| `downloadlikes.py` | Bearer token prototype; thumbnail downloads only. |
-| `singledownload.py` | Selenium-based; intercepted HLS `.m3u8` streams via Chrome perf logs. |
-| `generic.py` | Incomplete Selenium skeleton. |
-| `newversion.py` | `yt-dlp` batch downloader via `urls.txt` + `credentials.txt`. |
-| `newcookies.py` | `yt-dlp` batch downloader via Netscape `cookies.txt`. |
-| `logintest.py` | Login scratch script. |
-| `test.py` | General scratch file. |
+A Type 2 AppImage was built:
+
+```
+BlueSkyDownloader-x86_64.AppImage   (939 KB, squashfs/zstd, ELF runtime)
+```
+
+Located in the project directory. Not committed to git (excluded by `.gitignore`).
+Should be attached to a GitHub Release manually if distribution is needed.
+
+AppDir structure used:
+```
+BlueSkyDownloader.AppDir/
+├── AppRun                  (bash launcher → python3 usr/bin/gui.py)
+├── blueskydownload.desktop (Exec=blueskydownloader, Icon=blueskydownload)
+├── blueskydownload.png     (256×256, blue #0085ff with "BSky" text, imagemagick)
+└── usr/bin/
+    ├── apitest.py
+    └── gui.py
+```
+
+The AppImage is thin — it bundles only the Python scripts and uses system Python/pacman packages.
+Rebuild command:
+```bash
+ARCH=x86_64 appimagetool BlueSkyDownloader.AppDir BlueSkyDownloader-x86_64.AppImage
+```
+
+---
+
+## Desktop launcher
+
+`blueskydownload.desktop` is in the project root and committed to git.
+It is **not yet installed** to `~/.local/share/applications/` (user declined during this session).
+
+To install:
+```bash
+cp blueskydownload.desktop ~/.local/share/applications/
+# Edit Exec= to the absolute path of gui.py
+```
 
 ---
 
 ## Running
 
-### GUI
-
 ```bash
+# GUI
 python gui.py
-```
 
-### CLI
-
-```bash
-# Download your liked posts (images + videos)
+# CLI — liked posts
 python apitest.py --mode likes
 
-# Download a user's gallery (images only, 10 pages)
+# CLI — any user's gallery
 python apitest.py --mode gallery --user someartist.bsky.social --media images --pages 10
-
-# Full options
-python apitest.py --help
-```
-
-### CLI flags
-
-| Flag | Values | Default |
-|---|---|---|
-| `--mode` | `likes` / `gallery` | `likes` |
-| `--user` | any Bluesky handle | your own account |
-| `--media` | `images` / `videos` / `both` | `both` |
-| `--pages` | 1–200 | 25 (50 posts/page) |
-| `--output` | directory path | `~/Pictures/BlueSkyDownload` |
-| `--handle` | your handle | from config |
-| `--password` | your app password | from config |
-
----
-
-## Credentials & Config
-
-Credentials are stored at **`~/.config/blueskydownload/config.ini`** (XDG standard).
-
-The GUI saves credentials automatically on first successful run. For CLI-only use, create the file manually:
-
-```ini
-[credentials]
-handle = yourname.bsky.social
-app_password = xxxx-xxxx-xxxx-xxxx
-```
-
-App passwords are generated in Bluesky: **Settings → Privacy and Security → App Passwords**.
-
-**Do not commit credentials to any repository.**
-
----
-
-## Dependencies
-
-All available via pacman on Arch/CachyOS:
-
-```bash
-sudo pacman -S python-requests python-tqdm python-pyqt6 yt-dlp ffmpeg
-```
-
-`yt-dlp` and `ffmpeg` must be on `PATH` for video downloads. Images work without them.
-
-For pip (alternative):
-
-```bash
-pip install requests tqdm PyQt6
 ```
 
 ---
 
-## Desktop Launcher (Arch/CachyOS)
+## Code architecture
 
-To register the app in your application menu:
+### `apitest.py` — core module + CLI
 
-```bash
-cp blueskydownload.desktop ~/.local/share/applications/
-# then edit the Exec line to use the absolute path to gui.py
-```
+All functions are importable (no module-level side effects). `__main__` block handles CLI via `argparse`.
 
----
-
-## Architecture
-
-### `apitest.py` — core module
-
-All functions are importable (no top-level side effects). The `if __name__ == "__main__"` block handles CLI.
-
-| Function | Purpose |
+| Symbol | Purpose |
 |---|---|
+| `CONFIG_FILE` | `Path` to `~/.config/blueskydownload/config.ini` |
+| `DEFAULT_DOWNLOAD_DIR` | `~/Pictures/BlueSkyDownload` |
 | `load_config()` / `save_config()` | XDG config read/write |
-| `bluesky_login(handle, password)` | POST to `com.atproto.server.createSession` |
-| `get_did_for_handle(handle, token)` | Resolve handle → DID |
-| `fetch_likes_media(token, did, ...)` | Paginate `app.bsky.feed.getActorLikes` |
-| `fetch_user_gallery(token, did, ...)` | Paginate `app.bsky.feed.getAuthorFeed?filter=posts_with_media` |
-| `download_media(items, dir, ...)` | Download images via `requests`, videos via `yt-dlp` subprocess |
+| `bluesky_login(id, pw)` | POST `com.atproto.server.createSession` → returns session dict |
+| `get_did_for_handle(handle, jwt)` | Resolve handle → DID string |
+| `extract_images_from_post(post)` | Returns list of `fullsize` CDN URLs |
+| `extract_videos_from_post(post)` | Returns list of HLS playlist URLs |
+| `format_created_at(post)` | `YYYYMMDD_HHMMSS` string from `record.createdAt` |
+| `sanitize_filename(text)` | Strip non-alphanumeric chars |
+| `_fetch_feed(url, params, ...)` | Shared pagination loop (tqdm, cursor, dedup) |
+| `fetch_likes_media(jwt, did, ...)` | Wraps `_fetch_feed` → `getActorLikes` |
+| `fetch_user_gallery(jwt, did, ...)` | Wraps `_fetch_feed` → `getAuthorFeed?filter=posts_with_media` |
+| `download_media(items, dir, ...)` | Downloads images via `requests`, videos via `yt-dlp` subprocess |
 
-Both fetch functions accept `log_fn=` (callable for status messages) used by the GUI to pipe output to the log widget.
+`fetch_*` and `download_media` accept:
+- `log_fn=print` — replaced by `self.log.emit` in the GUI worker
+- `cancel_fn=None` — GUI passes `lambda: self._stop` for the cancel button
 
-`download_media` accepts `cancel_fn=` (callable returning bool) used by the GUI cancel button.
+tqdm is auto-disabled when stdout is not a tty (i.e. when called from the GUI thread).
 
 ### `gui.py` — PyQt6 frontend
 
-`DownloadWorker(QThread)` runs the download in a background thread, emitting:
-- `log(str)` — appended to the log widget
-- `done(bool, str)` — re-enables controls and updates the status bar
+Imports `apitest as bsky`. No logic lives here — only UI wiring.
 
-### Output Filename Format
+`DownloadWorker(QThread)`:
+- `run()` calls `bsky.bluesky_login → get_did_for_handle → fetch_* → download_media`
+- Emits `log(str)` and `done(bool, str)` signals
+- `cancel()` sets `self._stop = True`; `download_media` checks it between posts
+
+`MainWindow(QMainWindow)`:
+- Credentials auto-loaded from XDG config on startup via `bsky.load_config()`
+- Credentials saved on every Start click via `bsky.save_config()`
+- Mode dropdown: `"Liked Posts"` / `"User Gallery"`
+- Media dropdown: `"Both"` / `"Images Only"` / `"Videos Only"`
+- Pages spinbox: 1–200, default 25
+
+### Output filename format
 
 ```
-{author_handle}_{YYYYMMDD_HHMMSS}_{post_id}_{index}.{ext}
+{author_handle}_{YYYYMMDD_HHMMSS}_{post_id}_{index}.{ext}     # images
+{author_handle}_{YYYYMMDD_HHMMSS}_{post_id}_v{index}.mp4      # videos
 ```
 
-Example: `someartist_20240315_143022_3ld5abc_1.jpeg`
-
-Videos: same pattern with `_v{index}.mp4`.
+Image extension is parsed from the `@jpeg` / `@png` suffix in the CDN URL, with a fallback to the
+`Content-Type` response header.
 
 ---
 
-## AT Protocol Endpoints Used
+## AT Protocol endpoints
 
-| Endpoint | Purpose |
+Base URL: `https://bsky.social/xrpc/`
+
+| Endpoint | Used for |
 |---|---|
-| `com.atproto.server.createSession` | Login → JWT |
+| `com.atproto.server.createSession` | Login, returns `accessJwt` |
 | `com.atproto.identity.resolveHandle` | Handle → DID |
-| `app.bsky.feed.getActorLikes` | Liked posts feed |
-| `app.bsky.feed.getAuthorFeed` | User's own posts (filtered to media) |
-
-Base: `https://bsky.social/xrpc/`
+| `app.bsky.feed.getActorLikes` | Liked posts feed (paginated) |
+| `app.bsky.feed.getAuthorFeed` | User feed filtered to `posts_with_media` |
 
 ---
 
-## Known Limitations
+## Known limitations
 
-- No cross-run deduplication beyond checking if the output file already exists on disk.
-- `yt-dlp` is called as a subprocess (not library) — requires it on `PATH`.
-- Bluesky rate limits are not explicitly handled; the 0.5–2s delay between posts is a soft guard.
+- No cross-run deduplication beyond checking if the output filename already exists on disk.
+- `yt-dlp` invoked as a subprocess — must be on `PATH`.
+- Bluesky rate limits not explicitly handled; 0.5–2 s random delay between posts is a soft guard.
+- `DAYS_BACK` constant exists in old backups but is not implemented in the current script — all
+  paginated results are downloaded regardless of date.
+- AppImage is a thin wrapper — target machine must have `python-pyqt6`, `python-requests`,
+  `python-tqdm`, `yt-dlp` installed.
