@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget,
     QVBoxLayout, QHBoxLayout, QFormLayout,
     QGroupBox, QLabel, QLineEdit, QPushButton,
-    QComboBox, QSpinBox, QFileDialog,
+    QComboBox, QSpinBox, QDoubleSpinBox, QFileDialog,
     QTextEdit, QStatusBar, QProgressBar, QSplitter, QSizePolicy,
 )
 from PyQt6.QtCore import QThread, pyqtSignal, Qt
@@ -61,7 +61,7 @@ class DownloadWorker(QThread):
                 )
 
             media_map = {"Both": "both", "Images Only": "images", "Videos Only": "videos"}
-            bsky.download_media(
+            stats = bsky.download_media(
                 items,
                 cfg["output"],
                 media_type=media_map[cfg["media"]],
@@ -71,12 +71,24 @@ class DownloadWorker(QThread):
                 progress_fn=lambda d, t: self.progress.emit(d, t),
                 file_progress_fn=lambda fn, d, t: self.file_progress.emit(fn, d, t),
                 preview_fn=self.preview.emit,
+                delay_min=cfg["delay_min"],
+                delay_max=cfg["delay_max"],
+            )
+
+            total_files = stats["images"] + stats["videos"]
+            nb = stats["bytes"]
+            size_str = (f"{nb / 1_048_576:.1f} MB" if nb >= 1_048_576
+                        else f"{nb / 1024:.1f} KB")
+            self.log.emit(
+                f"── Summary ──  Images: {stats['images']}  │  "
+                f"Videos: {stats['videos']}  │  "
+                f"Total: {total_files} files  │  {size_str}"
             )
 
             if self._stop:
                 self.done.emit(False, "Cancelled.")
             else:
-                self.done.emit(True, f"Done — {len(items)} posts processed.")
+                self.done.emit(True, f"Done — {total_files} files · {size_str}")
 
         except Exception as e:
             self.done.emit(False, str(e))
@@ -152,6 +164,7 @@ class MainWindow(QMainWindow):
         f.addRow("Target Handle:", self.le_target)
         f.addRow("Media Type:", self.cb_media)
         f.addRow("Max Pages:", self.sp_pages)
+        f.addRow("Post Delay:", self._build_delay_widget())
         return g
 
     def _output_group(self) -> QGroupBox:
@@ -277,6 +290,59 @@ class MainWindow(QMainWindow):
         else:
             self.le_target.setPlaceholderText("Leave blank to use your own account")
 
+    def _build_delay_widget(self) -> QWidget:
+        w = QWidget()
+        h = QHBoxLayout(w)
+        h.setContentsMargins(0, 0, 0, 0)
+        h.setSpacing(6)
+
+        self.cb_delay_type = QComboBox()
+        self.cb_delay_type.addItems(["Fixed", "Variable"])
+        self.cb_delay_type.setFixedWidth(84)
+
+        self.dsb_delay_fixed = QDoubleSpinBox()
+        self.dsb_delay_fixed.setRange(0.0, 60.0)
+        self.dsb_delay_fixed.setSingleStep(0.1)
+        self.dsb_delay_fixed.setValue(1.0)
+        self.dsb_delay_fixed.setSuffix(" s")
+        self.dsb_delay_fixed.setFixedWidth(72)
+
+        self.dsb_delay_min = QDoubleSpinBox()
+        self.dsb_delay_min.setRange(0.0, 60.0)
+        self.dsb_delay_min.setSingleStep(0.1)
+        self.dsb_delay_min.setValue(0.5)
+        self.dsb_delay_min.setSuffix(" s")
+        self.dsb_delay_min.setFixedWidth(72)
+        self.dsb_delay_min.setVisible(False)
+
+        self._lbl_delay_to = QLabel("to")
+        self._lbl_delay_to.setVisible(False)
+
+        self.dsb_delay_max = QDoubleSpinBox()
+        self.dsb_delay_max.setRange(0.0, 60.0)
+        self.dsb_delay_max.setSingleStep(0.1)
+        self.dsb_delay_max.setValue(2.0)
+        self.dsb_delay_max.setSuffix(" s")
+        self.dsb_delay_max.setFixedWidth(72)
+        self.dsb_delay_max.setVisible(False)
+
+        h.addWidget(self.cb_delay_type)
+        h.addWidget(self.dsb_delay_fixed)
+        h.addWidget(self.dsb_delay_min)
+        h.addWidget(self._lbl_delay_to)
+        h.addWidget(self.dsb_delay_max)
+        h.addStretch()
+
+        self.cb_delay_type.currentTextChanged.connect(self._on_delay_type_changed)
+        return w
+
+    def _on_delay_type_changed(self, mode: str):
+        fixed = mode == "Fixed"
+        self.dsb_delay_fixed.setVisible(fixed)
+        self.dsb_delay_min.setVisible(not fixed)
+        self._lbl_delay_to.setVisible(not fixed)
+        self.dsb_delay_max.setVisible(not fixed)
+
     def _browse_output(self):
         path = QFileDialog.getExistingDirectory(
             self, "Select Output Folder", self.le_output.text()
@@ -313,14 +379,37 @@ class MainWindow(QMainWindow):
                 pass
         if "output" in lr:
             self.le_output.setText(lr["output"])
+        if "delay_type" in lr:
+            idx = self.cb_delay_type.findText(lr["delay_type"])
+            if idx >= 0:
+                self.cb_delay_type.setCurrentIndex(idx)
+        if "delay_fixed" in lr:
+            try:
+                self.dsb_delay_fixed.setValue(float(lr["delay_fixed"]))
+            except ValueError:
+                pass
+        if "delay_min" in lr:
+            try:
+                self.dsb_delay_min.setValue(float(lr["delay_min"]))
+            except ValueError:
+                pass
+        if "delay_max" in lr:
+            try:
+                self.dsb_delay_max.setValue(float(lr["delay_max"]))
+            except ValueError:
+                pass
 
     def _save_ui_state(self):
         bsky.save_ui_state({
-            "mode":   self.cb_mode.currentText(),
-            "target": self.le_target.text().strip(),
-            "media":  self.cb_media.currentText(),
-            "pages":  str(self.sp_pages.value()),
-            "output": self.le_output.text().strip(),
+            "mode":        self.cb_mode.currentText(),
+            "target":      self.le_target.text().strip(),
+            "media":       self.cb_media.currentText(),
+            "pages":       str(self.sp_pages.value()),
+            "output":      self.le_output.text().strip(),
+            "delay_type":  self.cb_delay_type.currentText(),
+            "delay_fixed": str(self.dsb_delay_fixed.value()),
+            "delay_min":   str(self.dsb_delay_min.value()),
+            "delay_max":   str(self.dsb_delay_max.value()),
         })
 
     def _append_log(self, msg: str):
@@ -385,14 +474,23 @@ class MainWindow(QMainWindow):
         bsky.save_config(handle, password)
         self._save_ui_state()
 
+        if self.cb_delay_type.currentText() == "Fixed":
+            d = self.dsb_delay_fixed.value()
+            delay_min, delay_max = d, d
+        else:
+            delay_min = self.dsb_delay_min.value()
+            delay_max = max(self.dsb_delay_max.value(), delay_min)
+
         cfg = {
-            "handle":   handle,
-            "password": password,
-            "mode":     self.cb_mode.currentText(),
-            "target":   self.le_target.text().strip(),
-            "media":    self.cb_media.currentText(),
-            "pages":    self.sp_pages.value(),
-            "output":   self.le_output.text().strip(),
+            "handle":    handle,
+            "password":  password,
+            "mode":      self.cb_mode.currentText(),
+            "target":    self.le_target.text().strip(),
+            "media":     self.cb_media.currentText(),
+            "pages":     self.sp_pages.value(),
+            "output":    self.le_output.text().strip(),
+            "delay_min": delay_min,
+            "delay_max": delay_max,
         }
 
         self.te_log.clear()

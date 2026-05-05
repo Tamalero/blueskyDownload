@@ -183,7 +183,8 @@ def _download_video(url, output_template):
 
 def download_media(items, download_dir, media_type="both",
                    log_fn=print, error_fn=None, cancel_fn=None,
-                   progress_fn=None, file_progress_fn=None, preview_fn=None):
+                   progress_fn=None, file_progress_fn=None, preview_fn=None,
+                   delay_min=0.5, delay_max=2.0):
     """
     Download images and/or videos from a list of feed items.
 
@@ -193,6 +194,8 @@ def download_media(items, download_dir, media_type="both",
     progress_fn:      called with (done_count, total_count) after each file
     file_progress_fn: called with (filename, bytes_done, bytes_total) during streaming
     preview_fn:       called with (filepath) after each successful save
+    delay_min/max:    seconds to sleep between posts; fixed when equal, uniform random otherwise
+    returns:          {"images": N, "videos": N, "bytes": N}
     """
     if error_fn is None:
         error_fn = log_fn
@@ -213,11 +216,14 @@ def download_media(items, download_dir, media_type="both",
         progress_fn(0, total)
 
     done_count = 0
+    images_ok  = 0
+    videos_ok  = 0
+    bytes_total = 0
 
     for item in tqdm(items, desc="Downloading", unit="post", disable=not tty):
         if cancel_fn and cancel_fn():
             log_fn("Download cancelled.")
-            return
+            return {"images": images_ok, "videos": videos_ok, "bytes": bytes_total}
 
         post   = item.get("post", {})
         handle = sanitize_filename(post.get("author", {}).get("handle", "unknown"))
@@ -256,6 +262,8 @@ def download_media(items, download_dir, media_type="both",
                                 if file_progress_fn:
                                     file_progress_fn(fname, downloaded_bytes, total_size)
                     log_fn(f"Saved image: {fname}")
+                    images_ok += 1
+                    bytes_total += downloaded_bytes
                     done_count += 1
                     if progress_fn:
                         progress_fn(done_count, total)
@@ -276,10 +284,13 @@ def download_media(items, download_dir, media_type="both",
                 try:
                     _download_video(vid_url, out_tpl)
                     log_fn(f"Saved video: {fname}")
+                    videos_ok += 1
                     done_count += 1
                     if progress_fn:
                         progress_fn(done_count, total)
                     actual_path = os.path.join(download_dir, fname)
+                    if os.path.exists(actual_path):
+                        bytes_total += os.path.getsize(actual_path)
                     if preview_fn and os.path.exists(actual_path):
                         preview_fn(actual_path)
                 except Exception as e:
@@ -288,7 +299,9 @@ def download_media(items, download_dir, media_type="both",
                     if progress_fn:
                         progress_fn(done_count, total)
 
-        time.sleep(random.uniform(0.5, 2.0))
+        time.sleep(random.uniform(delay_min, delay_max))
+
+    return {"images": images_ok, "videos": videos_ok, "bytes": bytes_total}
 
 
 # ── CLI entry point ────────────────────────────────────────────────────────────

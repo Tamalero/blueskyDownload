@@ -10,14 +10,14 @@ Two entry points: a CLI (`apitest.py`) and a PyQt6 GUI (`gui.py`).
 - **Python:** system Python 3 (no virtualenv — all deps via pacman)  
 - **XDG config:** `~/.config/blueskydownload/config.ini`  
 - **Default output:** `~/Pictures/BlueSkyDownload`
-- **Latest release:** v1.0.0 — https://github.com/Tamalero/blueskyDownload/releases/tag/v1.0.0
+- **Latest release:** v1.1.0 — https://github.com/Tamalero/blueskyDownload/releases/tag/v1.1.0
 
 ---
 
 ## Repository state (as of 2026-05-05)
 
 Git is initialized. Remote is `https://github.com/Tamalero/blueskyDownload.git`, branch `main`.
-Latest commit: `460c8b0` — "Add progress bars, live preview, error highlighting, saved UI state, and responsive layout"
+Latest commit: (to be updated after push) — "Add download summary and configurable post delay"
 
 Committed files:
 
@@ -61,12 +61,12 @@ Obsolete files still on disk (not tracked by git): `apitest_backup.py`, `apitest
 Type 2 AppImage with embedded GitHub update metadata:
 
 ```
-BlueSkyDownloader-x86_64.AppImage       (939 KB, squashfs/zstd, ELF runtime)
-BlueSkyDownloader-x86_64.AppImage.zsync (4.9 KB, delta-update index)
+BlueSkyDownloader-x86_64.AppImage       (squashfs/zstd, ELF runtime)
+BlueSkyDownloader-x86_64.AppImage.zsync (delta-update index)
 ```
 
 Both files are in the project directory. Not committed to git (excluded by `.gitignore`).
-Attached to the GitHub release v1.0.0.
+Attached to GitHub releases.
 
 ### AppDir structure
 
@@ -110,6 +110,7 @@ The AppImage's embedded update URL resolves to the latest release on GitHub.
 
 | Tag | Assets |
 |---|---|
+| `v1.1.0` | `BlueSkyDownloader-x86_64.AppImage`, `BlueSkyDownloader-x86_64.AppImage.zsync`, source zip/tar.gz |
 | `v1.0.0` | `BlueSkyDownloader-x86_64.AppImage`, `BlueSkyDownloader-x86_64.AppImage.zsync`, source zip/tar.gz |
 
 When making a new release:
@@ -171,9 +172,20 @@ All functions are importable (no module-level side effects). `__main__` block ha
 | `_fetch_feed(url, params, ...)` | Shared pagination loop (tqdm, cursor, dedup) |
 | `fetch_likes_media(jwt, did, ...)` | Wraps `_fetch_feed` → `getActorLikes` |
 | `fetch_user_gallery(jwt, did, ...)` | Wraps `_fetch_feed` → `getAuthorFeed?filter=posts_with_media` |
-| `download_media(items, dir, ...)` | Downloads images via streaming `requests`, videos via `yt-dlp` |
+| `download_media(items, dir, ...)` | Downloads images via streaming `requests`, videos via `yt-dlp`; returns stats dict |
 
-#### `download_media` callback parameters
+#### `download_media` full signature
+
+```python
+def download_media(items, download_dir, media_type="both",
+                   log_fn=print, error_fn=None, cancel_fn=None,
+                   progress_fn=None, file_progress_fn=None, preview_fn=None,
+                   delay_min=0.5, delay_max=2.0):
+```
+
+**Return value:** `{"images": N, "videos": N, "bytes": N}` — partial stats also returned on cancel.
+
+#### `download_media` callback/delay parameters
 
 | Parameter | Type | Purpose |
 |---|---|---|
@@ -183,6 +195,12 @@ All functions are importable (no module-level side effects). `__main__` block ha
 | `progress_fn` | `(int, int) → None` | Called with `(done_count, total_count)` after each file |
 | `file_progress_fn` | `(str, int, int) → None` | Called with `(filename, bytes_done, bytes_total)` during streaming |
 | `preview_fn` | `str → None` | Called with the saved file path after each successful download |
+| `delay_min` | `float` | Minimum seconds to sleep between posts (default: 0.5) |
+| `delay_max` | `float` | Maximum seconds to sleep between posts (default: 2.0); equals `delay_min` for fixed delay |
+
+Sleep uses `random.uniform(delay_min, delay_max)` — when min == max this is a fixed delay.
+Image bytes are accumulated from the streaming download counter. Video bytes are read via
+`os.path.getsize` after yt-dlp finishes (only if the file exists at the expected path).
 
 Images are downloaded with `stream=True`; Content-Type extension fix happens before streaming starts
 so the filename passed to `file_progress_fn` is always the final correct name.
@@ -209,11 +227,17 @@ Signals:
 
 `cancel()` sets `self._stop = True`; `download_media` checks it between posts via `cancel_fn`.
 
+After `download_media` returns, the worker emits a summary line via `self.log`:
+```
+── Summary ──  Images: N  │  Videos: N  │  Total: N files  │  X.X MB
+```
+The `done` signal message is the compact form: `"Done — N files · X.X MB"`.
+
 #### `MainWindow(QMainWindow)` — UI layout
 
 ```
 Credentials Group      (handle, app password)
-Options Group          (mode, target handle, media type, pages)
+Options Group          (mode, target handle, media type, pages, post delay)
 Output Folder Group    (path + Browse button)
 Start / Cancel buttons
 Progress Group         (total bar + count label, file bar + filename/size label)
@@ -222,6 +246,21 @@ QSplitter (horizontal, non-collapsible):
   └── Log Group        (QTextEdit — read-only, monospace, HTML-colored)
 StatusBar
 ```
+
+#### Post Delay widget — `_build_delay_widget()`
+
+Returns a `QWidget` with a `QHBoxLayout` containing:
+- `cb_delay_type` (`QComboBox`): "Fixed" | "Variable"
+- `dsb_delay_fixed` (`QDoubleSpinBox`, 0–60 s, default 1.0 s): visible only in Fixed mode
+- `dsb_delay_min` (`QDoubleSpinBox`, 0–60 s, default 0.5 s): visible only in Variable mode
+- `_lbl_delay_to` (`QLabel("to")`): visible only in Variable mode
+- `dsb_delay_max` (`QDoubleSpinBox`, 0–60 s, default 2.0 s): visible only in Variable mode
+
+`_on_delay_type_changed(mode)` toggles visibility of the fixed/variable widgets on combo change.
+
+In `_start()`, delay values are resolved to `delay_min` / `delay_max` before passing to the worker:
+- Fixed → `delay_min = delay_max = dsb_delay_fixed.value()`
+- Variable → `delay_min = dsb_delay_min.value()`, `delay_max = max(dsb_delay_max.value(), delay_min)`
 
 #### Splitter ratio — screen-responsive
 
@@ -245,7 +284,8 @@ Non-image files (videos) show `"▶ Video"` text instead.
 #### Config persistence
 
 - Credentials (`handle`, `app_password`) saved to `[credentials]` on every Start click.
-- UI state (`mode`, `target`, `media`, `pages`, `output`) saved to `[last_run]` on every Start click.
+- UI state saved to `[last_run]` on every Start click: `mode`, `target`, `media`, `pages`, `output`,
+  `delay_type`, `delay_fixed`, `delay_min`, `delay_max`.
 - Both sections loaded on startup. `save_config` and `save_ui_state` both use read-modify-write
   so they never clobber each other's section.
 
@@ -288,8 +328,18 @@ never called with the login identifier.
 
 - No cross-run deduplication beyond checking if the output filename already exists on disk.
 - `yt-dlp` invoked as a subprocess — must be on `PATH`.
-- Bluesky rate limits not explicitly handled; 0.5–2 s random delay between posts is a soft guard.
 - Video downloads show an indeterminate progress bar (yt-dlp subprocess gives no byte-level callback).
 - AppImage is a thin wrapper — target machine must have `python-pyqt6`, `python-requests`,
   `python-tqdm`, `yt-dlp`, `ffmpeg` installed via pacman.
 - `DAYS_BACK` filtering is not implemented — all paginated results are downloaded regardless of date.
+
+---
+
+## Security notes
+
+The following obsolete files on disk (never committed) contain hardcoded credentials from before
+the XDG config pattern was adopted. Both app passwords should be revoked in Bluesky settings:
+- `apitest_backup.py`, `apitest_backup2.py`, `downloadlikes.py` — contain `oqvt-l2xw-a75k-vdzr`
+- `downloadlikes.py` — also contains `ChitaChuts4099__`
+
+All committed/tracked code is clean — no credentials in git history or any tracked file.

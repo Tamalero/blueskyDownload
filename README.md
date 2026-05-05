@@ -12,7 +12,14 @@ Available as a **GUI app**, a **CLI tool**, and a portable **AppImage** for Arch
 - Download media from **any user's gallery** (their public media tab)
 - Filter by media type: images, videos, or both
 - Configurable page depth (up to 200 pages × 50 posts)
+- **Download summary** on completion — images, videos, total files, total MB
+- **Configurable post delay** — fixed timing or random range (min–max) to avoid rate limiting
 - Skips files already on disk — safe to re-run
+- Live file progress bar with filename and byte-level size display
+- Overall progress bar with file count
+- Latest downloaded image shown as a live preview thumbnail
+- Error messages highlighted in red in the log
+- Saves and restores last-run options between sessions
 - Credentials stored in `~/.config/blueskydownload/config.ini` (XDG standard)
 - Downloads saved to `~/Pictures/BlueSkyDownload` by default
 
@@ -58,9 +65,22 @@ EOF
 python gui.py
 ```
 
-![GUI screenshot placeholder](https://via.placeholder.com/560x420?text=BlueSky+Downloader+GUI)
+Select your mode, target handle, media type, output folder, and post delay, then click **Start Download**.
 
-Select your mode, target handle, media type, and output folder, then click **Start Download**.
+When the download finishes, a summary is shown in the log:
+
+```
+── Summary ──  Images: 42  │  Videos: 3  │  Total: 45 files  │  128.4 MB
+```
+
+#### Post Delay option
+
+| Mode | Behaviour |
+|------|-----------|
+| **Fixed** | Waits exactly N seconds between posts |
+| **Variable** | Waits a random duration between Min and Max seconds |
+
+Default is Variable 0.5–2.0 s. Set to 0 s (fixed) to disable all delays.
 
 ### CLI
 
@@ -95,6 +115,14 @@ Download `BlueSkyDownloader-x86_64.AppImage` from [Releases](https://github.com/
 chmod +x BlueSkyDownloader-x86_64.AppImage
 ./BlueSkyDownloader-x86_64.AppImage
 ```
+
+#### Auto-update
+
+```bash
+AppImageUpdate BlueSkyDownloader-x86_64.AppImage
+```
+
+Requires [AppImageUpdate](https://github.com/AppImageCommunity/AppImageUpdate). The AppImage contains embedded update metadata pointing to the latest GitHub release.
 
 ---
 
@@ -132,6 +160,23 @@ Uses the [Bluesky AT Protocol](https://atproto.com/) REST API directly — no br
 | User gallery | `app.bsky.feed.getAuthorFeed?filter=posts_with_media` |
 
 Videos are downloaded via `yt-dlp` using the HLS playlist URL exposed by the API.
+
+---
+
+## Changelog
+
+### v1.1.0
+- Download summary on completion: images count, videos count, total files, total size in MB/KB
+- Configurable post delay: Fixed (single value) or Variable (random min–max range)
+- Delay setting is saved and restored between sessions
+
+### v1.0.0
+- Initial release
+- GUI with overall and per-file progress bars, live preview, colored error log
+- Liked posts and user gallery download modes
+- Image and video support via `yt-dlp`
+- Saved credentials and last-run UI state
+- AppImage with embedded auto-update metadata
 
 ---
 
