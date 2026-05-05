@@ -17,7 +17,7 @@ Two entry points: a CLI (`apitest.py`) and a PyQt6 GUI (`gui.py`).
 ## Repository state (as of 2026-05-05)
 
 Git is initialized. Remote is `https://github.com/Tamalero/blueskyDownload.git`, branch `main`.
-Latest commit: (to be updated after push) — "Add download summary and configurable post delay"
+Latest commit: `721f733` — "Add download summary and configurable post delay"
 
 Committed files:
 
