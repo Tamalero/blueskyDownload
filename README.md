@@ -41,7 +41,7 @@ Images download without them.
 Install dependencies via pacman:
 
 ```bash
-sudo pacman -S python-requests python-tqdm python-pyqt6 yt-dlp ffmpeg
+sudo pacman -S python-requests python-tqdm python-pyqt6 python-cryptography yt-dlp ffmpeg
 ```
 
 > `yt-dlp` and `ffmpeg` are only needed for video downloads. Images work without them.
@@ -181,6 +181,12 @@ Videos are downloaded via `yt-dlp` using the HLS playlist URL exposed by the API
 ---
 
 ## Changelog
+
+### v1.2.0
+- App password is now **encrypted at rest** in the config file using Fernet symmetric encryption
+- Encryption key stored in `~/.config/blueskydownload/secret.key` (user-only, mode 600)
+- Existing plain-text configs are migrated automatically on first save
+- Version number shown in the window title
 
 ### v1.1.0
 - Download summary on completion: images count, videos count, total files, total size in MB/KB

@@ -26,7 +26,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install build dependencies
-        run: pip install pyinstaller pyqt6 requests tqdm pillow
+        run: pip install pyinstaller pyqt6 requests tqdm pillow cryptography
 
       - name: Convert icon PNG to ICO
         run: |

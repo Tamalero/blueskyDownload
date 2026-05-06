@@ -99,7 +99,7 @@ class DownloadWorker(QThread):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("BlueSky Downloader")
+        self.setWindowTitle(f"BlueSky Downloader v{bsky.VERSION}")
         self.setMinimumWidth(620)
         self.worker: DownloadWorker | None = None
         self._current_preview_pixmap: QPixmap | None = None
@@ -355,7 +355,7 @@ class MainWindow(QMainWindow):
         if cfg.has_option("credentials", "handle"):
             self.le_handle.setText(cfg.get("credentials", "handle"))
         if cfg.has_option("credentials", "app_password"):
-            self.le_pass.setText(cfg.get("credentials", "app_password"))
+            self.le_pass.setText(bsky.get_app_password(cfg) or "")
 
     def _load_ui_state(self):
         cfg = bsky.load_config()

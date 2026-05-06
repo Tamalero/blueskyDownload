@@ -10,7 +10,7 @@ Two entry points: a CLI (`apitest.py`) and a PyQt6 GUI (`gui.py`).
 - **Python:** system Python 3 (no virtualenv — all deps via pacman)  
 - **XDG config:** `~/.config/blueskydownload/config.ini`  
 - **Default output:** `~/Pictures/BlueSkyDownload`
-- **Latest release:** v1.1.0 — https://github.com/Tamalero/blueskyDownload/releases/tag/v1.1.0
+- **Latest release:** v1.2.0 — https://github.com/Tamalero/blueskyDownload/releases/tag/v1.2.0
 
 ---
 
@@ -51,6 +51,7 @@ Obsolete files still on disk (not tracked by git): `apitest_backup.py`, `apitest
 | `python-requests` | installed |
 | `python-tqdm` | installed |
 | `python-pyqt6` | installed |
+| `python-cryptography` | installed |
 | `yt-dlp` | installed |
 | `ffmpeg` | installed |
 | `appimagetool-bin` | installed (AUR) |
@@ -116,7 +117,7 @@ No Python or dependencies need to be installed on the end-user's machine.
 ### How it works
 
 `.github/workflows/build-windows.yml` runs on `windows-latest`:
-1. Installs Python 3.12 + `pyinstaller pyqt6 requests tqdm pillow`
+1. Installs Python 3.12 + `pyinstaller pyqt6 requests tqdm pillow cryptography`
 2. Converts `blueskydownload.png` → `blueskydownload.ico` (multi-res: 16/32/48/256 px) via Pillow
 3. Runs PyInstaller: `--onefile --windowed --collect-all PyQt6` — produces a single portable exe
 4. Uploads `dist/BlueSkyDownloader.exe` to the GitHub release via `softprops/action-gh-release`
@@ -164,6 +165,7 @@ required. Do not attempt to build the exe locally with Wine — it is not suppor
 
 | Tag | Assets |
 |---|---|
+| `v1.2.0` | `BlueSkyDownloader.exe`, `BlueSkyDownloader-x86_64.AppImage`, `BlueSkyDownloader-x86_64.AppImage.zsync`, source zip/tar.gz |
 | `v1.1.0` | `BlueSkyDownloader.exe`, `BlueSkyDownloader-x86_64.AppImage`, `BlueSkyDownloader-x86_64.AppImage.zsync`, source zip/tar.gz |
 | `v1.0.0` | `BlueSkyDownloader-x86_64.AppImage`, `BlueSkyDownloader-x86_64.AppImage.zsync`, source zip/tar.gz |
 
@@ -213,11 +215,17 @@ All functions are importable (no module-level side effects). `__main__` block ha
 
 | Symbol | Purpose |
 |---|---|
+| `VERSION` | Current version string (`"1.2.0"`) |
 | `CONFIG_FILE` | `Path` to `~/.config/blueskydownload/config.ini` |
+| `KEY_FILE` | `Path` to `~/.config/blueskydownload/secret.key` (Fernet key, mode 600) |
 | `DEFAULT_DOWNLOAD_DIR` | `~/Pictures/BlueSkyDownload` |
 | `load_config()` | Reads full config (credentials + last_run sections) |
-| `save_config(handle, pw)` | Read-modify-write — preserves `[last_run]` section |
+| `save_config(handle, pw)` | Read-modify-write — encrypts password before storing; preserves `[last_run]` |
 | `save_ui_state(dict)` | Writes `[last_run]` section without touching credentials |
+| `_get_or_create_key()` | Returns Fernet key bytes; generates + saves key file on first call |
+| `encrypt_password(pw)` | Fernet-encrypt a plain-text password → base64 token string |
+| `decrypt_password(token)` | Decrypt a Fernet token → plain text; returns token unchanged on failure (migration) |
+| `get_app_password(cfg)` | Read + decrypt `app_password` from loaded config; returns `None` if absent |
 | `bluesky_login(id, pw)` | POST `com.atproto.server.createSession` → returns session dict |
 | `get_did_for_handle(handle, jwt)` | Only called for third-party targets; own DID comes from session |
 | `extract_images_from_post(post)` | Returns list of `fullsize` CDN URLs |
@@ -385,7 +393,7 @@ never called with the login identifier.
 - `yt-dlp` invoked as a subprocess — must be on `PATH` on all platforms; not bundled in the Windows exe.
 - Video downloads show an indeterminate progress bar (yt-dlp subprocess gives no byte-level callback).
 - AppImage is a thin wrapper — target machine must have `python-pyqt6`, `python-requests`,
-  `python-tqdm`, `yt-dlp`, `ffmpeg` installed via pacman.
+  `python-tqdm`, `python-cryptography`, `yt-dlp`, `ffmpeg` installed via pacman.
 - Windows exe first launch may take several seconds (PyInstaller --onefile extraction to temp dir).
 - `DAYS_BACK` filtering is not implemented — all paginated results are downloaded regardless of date.
 

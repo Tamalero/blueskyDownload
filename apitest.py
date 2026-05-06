@@ -11,11 +11,15 @@ from datetime import datetime
 
 import requests
 from tqdm import tqdm
+from cryptography.fernet import Fernet, InvalidToken
+
+VERSION = "1.2.0"
 
 # --- XDG paths (Arch/CachyOS) ---
 _cfg_home = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
-CONFIG_DIR = _cfg_home / "blueskydownload"
+CONFIG_DIR  = _cfg_home / "blueskydownload"
 CONFIG_FILE = CONFIG_DIR / "config.ini"
+KEY_FILE    = CONFIG_DIR / "secret.key"
 DEFAULT_DOWNLOAD_DIR = str(Path.home() / "Pictures" / "BlueSkyDownload")
 
 # --- AT Protocol endpoints ---
@@ -41,7 +45,7 @@ def save_config(handle, app_password):
     if not cfg.has_section("credentials"):
         cfg.add_section("credentials")
     cfg.set("credentials", "handle", handle)
-    cfg.set("credentials", "app_password", app_password)
+    cfg.set("credentials", "app_password", encrypt_password(app_password))
     with open(CONFIG_FILE, "w") as f:
         cfg.write(f)
 
@@ -55,6 +59,40 @@ def save_ui_state(state: dict):
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     with open(CONFIG_FILE, "w") as f:
         cfg.write(f)
+
+
+# ── Encryption ─────────────────────────────────────────────────────────────────
+
+def _get_or_create_key() -> bytes:
+    """Return the Fernet key, generating and persisting it on first use."""
+    if KEY_FILE.exists():
+        return KEY_FILE.read_bytes()
+    key = Fernet.generate_key()
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    KEY_FILE.write_bytes(key)
+    KEY_FILE.chmod(0o600)
+    return key
+
+
+def encrypt_password(password: str) -> str:
+    return Fernet(_get_or_create_key()).encrypt(password.encode()).decode()
+
+
+def decrypt_password(token: str) -> str:
+    """Decrypt a Fernet token. Falls back to returning the token unchanged for
+    plain-text passwords stored before encryption was added (migration path)."""
+    try:
+        return Fernet(_get_or_create_key()).decrypt(token.encode()).decode()
+    except (InvalidToken, Exception):
+        return token
+
+
+def get_app_password(cfg) -> str | None:
+    """Return the decrypted app password from config, or None if not set."""
+    raw = cfg.get("credentials", "app_password", fallback=None)
+    if raw is None:
+        return None
+    return decrypt_password(raw)
 
 
 # ── Authentication ─────────────────────────────────────────────────────────────
@@ -333,8 +371,8 @@ Examples:
     args = parser.parse_args()
 
     cfg = load_config()
-    my_handle   = args.handle   or cfg.get("credentials", "handle",       fallback=None)
-    my_password = args.password or cfg.get("credentials", "app_password", fallback=None)
+    my_handle   = args.handle   or cfg.get("credentials", "handle", fallback=None)
+    my_password = args.password or get_app_password(cfg)
 
     if not my_handle or not my_password:
         print("Error: credentials not found.")
