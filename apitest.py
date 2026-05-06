@@ -4,7 +4,6 @@ import time
 import random
 import re
 import argparse
-import subprocess
 import configparser
 from pathlib import Path
 from datetime import datetime
@@ -13,7 +12,7 @@ import requests
 from tqdm import tqdm
 from cryptography.fernet import Fernet, InvalidToken
 
-VERSION = "1.2.0"
+VERSION = "1.3.0"
 
 # --- XDG paths (Arch/CachyOS) ---
 _cfg_home = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
@@ -212,11 +211,22 @@ def fetch_user_gallery(token, actor_did, max_pages=25, page_size=50, log_fn=prin
 # ── Downloading ────────────────────────────────────────────────────────────────
 
 def _download_video(url, output_template):
-    subprocess.run(
-        ["yt-dlp", "-f", "bestvideo+bestaudio/best",
-         "--merge-output-format", "mp4", "-o", output_template, url],
-        check=True,
-    )
+    import yt_dlp
+
+    opts = {
+        "format":               "bestvideo+bestaudio/best",
+        "merge_output_format":  "mp4",
+        "outtmpl":              output_template,
+        "quiet":                True,
+        "no_warnings":          True,
+    }
+
+    # When bundled by PyInstaller (--onefile), binaries are extracted to sys._MEIPASS
+    if getattr(sys, "frozen", False):
+        opts["ffmpeg_location"] = sys._MEIPASS
+
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        ydl.download([url])
 
 
 def download_media(items, download_dir, media_type="both",

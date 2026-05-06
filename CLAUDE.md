@@ -10,7 +10,7 @@ Two entry points: a CLI (`apitest.py`) and a PyQt6 GUI (`gui.py`).
 - **Python:** system Python 3 (no virtualenv — all deps via pacman)  
 - **XDG config:** `~/.config/blueskydownload/config.ini`  
 - **Default output:** `~/Pictures/BlueSkyDownload`
-- **Latest release:** v1.2.0 — https://github.com/Tamalero/blueskyDownload/releases/tag/v1.2.0
+- **Latest release:** v1.3.0 — https://github.com/Tamalero/blueskyDownload/releases/tag/v1.3.0
 
 ---
 
@@ -117,10 +117,11 @@ No Python or dependencies need to be installed on the end-user's machine.
 ### How it works
 
 `.github/workflows/build-windows.yml` runs on `windows-latest`:
-1. Installs Python 3.12 + `pyinstaller pyqt6 requests tqdm pillow cryptography`
-2. Converts `blueskydownload.png` → `blueskydownload.ico` (multi-res: 16/32/48/256 px) via Pillow
-3. Runs PyInstaller: `--onefile --windowed --collect-all PyQt6` — produces a single portable exe
-4. Uploads `dist/BlueSkyDownloader.exe` to the GitHub release via `softprops/action-gh-release`
+1. Installs Python 3.12 + `pyinstaller pyqt6 requests tqdm pillow cryptography yt-dlp`
+2. Downloads `ffmpeg.exe` + `ffprobe.exe` from BtbN static builds (latest win64-gpl)
+3. Converts `blueskydownload.png` → `blueskydownload.ico` (multi-res: 16/32/48/256 px) via Pillow
+4. Runs PyInstaller: `--onefile --windowed --collect-all PyQt6 --collect-all yt_dlp --add-binary "ffmpeg.exe;." --add-binary "ffprobe.exe;."` — produces a single portable exe
+5. Uploads `dist/BlueSkyDownloader.exe` to the GitHub release via `softprops/action-gh-release`
 
 ### Triggers
 
@@ -141,18 +142,20 @@ gh workflow run "Build Windows Executable" --repo Tamalero/blueskyDownload --ref
 | `--onefile` | Single portable exe — no install needed |
 | `--windowed` | Suppresses the console window on launch |
 | `--collect-all PyQt6` | Bundles all Qt plugins including `qwindows.dll` (platform plugin required for GUI) |
+| `--collect-all yt_dlp` | Bundles all yt-dlp extractor/downloader modules (uses dynamic imports internally) |
+| `--add-binary "ffmpeg.exe;."` | Bundles static ffmpeg into bundle root (`sys._MEIPASS`) |
+| `--add-binary "ffprobe.exe;."` | Bundles static ffprobe into bundle root |
 
 `--onefile` extracts to a persistent temp folder on first launch; subsequent launches reuse it.
 
-### Windows yt-dlp dependency
+`ffmpeg.exe` and `ffprobe.exe` are downloaded in CI from BtbN static builds before PyInstaller runs.
+At runtime, `_download_video` detects `sys.frozen` and sets `yt_dlp`'s `ffmpeg_location` to `sys._MEIPASS`.
 
-`yt-dlp` is called as a subprocess and is **not bundled** in the exe. Windows users who want
-video downloads must install it separately:
-```
-winget install yt-dlp.yt-dlp
-winget install Gyan.FFmpeg
-```
-Image downloads work without it.
+### yt-dlp integration
+
+`_download_video` now uses the `yt_dlp` Python API directly (no subprocess). This works on all
+platforms. On Linux, `yt-dlp` must be installed via pacman (`python-yt-dlp` or `yt-dlp`). On
+Windows, it is bundled in the exe along with ffmpeg/ffprobe — no external tools required.
 
 ### Cross-compilation note
 
@@ -165,6 +168,7 @@ required. Do not attempt to build the exe locally with Wine — it is not suppor
 
 | Tag | Assets |
 |---|---|
+| `v1.3.0` | `BlueSkyDownloader.exe`, `BlueSkyDownloader-x86_64.AppImage`, `BlueSkyDownloader-x86_64.AppImage.zsync`, source zip/tar.gz |
 | `v1.2.0` | `BlueSkyDownloader.exe`, `BlueSkyDownloader-x86_64.AppImage`, `BlueSkyDownloader-x86_64.AppImage.zsync`, source zip/tar.gz |
 | `v1.1.0` | `BlueSkyDownloader.exe`, `BlueSkyDownloader-x86_64.AppImage`, `BlueSkyDownloader-x86_64.AppImage.zsync`, source zip/tar.gz |
 | `v1.0.0` | `BlueSkyDownloader-x86_64.AppImage`, `BlueSkyDownloader-x86_64.AppImage.zsync`, source zip/tar.gz |
@@ -390,10 +394,10 @@ never called with the login identifier.
 ## Known limitations
 
 - No cross-run deduplication beyond checking if the output filename already exists on disk.
-- `yt-dlp` invoked as a subprocess — must be on `PATH` on all platforms; not bundled in the Windows exe.
-- Video downloads show an indeterminate progress bar (yt-dlp subprocess gives no byte-level callback).
+- `yt-dlp` used as Python API — must be installed as a Python package (`yt-dlp` via pacman on Linux); bundled in the Windows exe.
+- Video downloads show an indeterminate progress bar (yt-dlp gives no byte-level callback).
 - AppImage is a thin wrapper — target machine must have `python-pyqt6`, `python-requests`,
-  `python-tqdm`, `python-cryptography`, `yt-dlp`, `ffmpeg` installed via pacman.
+  `python-tqdm`, `python-cryptography`, `yt-dlp` (provides `python-yt-dlp` module), `ffmpeg` installed via pacman.
 - Windows exe first launch may take several seconds (PyInstaller --onefile extraction to temp dir).
 - `DAYS_BACK` filtering is not implemented — all paginated results are downloaded regardless of date.
 
