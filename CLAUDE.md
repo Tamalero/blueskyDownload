@@ -68,25 +68,41 @@ BlueSkyDownloader-x86_64.AppImage       (squashfs/zstd, ELF runtime)
 BlueSkyDownloader-x86_64.AppImage.zsync (delta-update index)
 ```
 
-Both files are in the project directory. Not committed to git (excluded by `.gitignore`).
-Attached to GitHub releases.
+Both files are attached to GitHub releases and built by CI (`build-linux` job). Not committed to git.
 
-### AppDir structure
+### Distributable AppImage (CI-built, self-contained)
+
+The release AppImage is built by GitHub Actions on `ubuntu-latest` using PyInstaller `--onefile`.
+It bundles Python, all packages (PyQt6, yt-dlp, cryptography, requests, tqdm), and static
+ffmpeg/ffprobe binaries. No system Python or pacman packages required on the end user's machine.
+
+AppDir structure assembled in CI:
+```
+AppDir/
+├── AppRun                  (bash: exec "$APPDIR/BlueSkyDownloader" "$@")
+├── blueskydownload.desktop
+├── blueskydownload.png
+└── BlueSkyDownloader       (PyInstaller --onefile binary)
+```
+
+The zsync file is generated automatically by appimagetool when `-u` is provided.
+
+### Local AppDir (thin, for development only)
+
+`BlueSkyDownloader.AppDir/` on disk is a thin dev wrapper — it runs the Python scripts directly
+using system Python/pacman packages. Use it only for local testing on Arch/CachyOS.
 
 ```
 BlueSkyDownloader.AppDir/
 ├── AppRun                  (bash launcher → python3 usr/bin/gui.py)
-├── blueskydownload.desktop (Exec=blueskydownloader, Icon=blueskydownload)
-├── blueskydownload.png     (256×256, blue #0085ff with "BSky" text)
+├── blueskydownload.desktop
+├── blueskydownload.png
 └── usr/bin/
     ├── apitest.py
     └── gui.py
 ```
 
-The AppImage is thin — it bundles only the Python scripts and uses system Python/pacman packages.
-
-### Rebuild command (always use this form to keep update metadata embedded)
-
+Local thin rebuild (dev only):
 ```bash
 cp apitest.py gui.py BlueSkyDownloader.AppDir/usr/bin/
 rm -f BlueSkyDownloader-x86_64.AppImage
@@ -94,9 +110,6 @@ ARCH=x86_64 appimagetool \
   -u "gh-releases-zsync|Tamalero|blueskyDownload|latest|BlueSkyDownloader-x86_64.AppImage.zsync" \
   BlueSkyDownloader.AppDir BlueSkyDownloader-x86_64.AppImage
 ```
-
-`appimagetool` auto-runs `zsyncmake` when `-u` is provided, so the `.zsync` file is generated
-automatically alongside the AppImage.
 
 ### Auto-update (end-user)
 
@@ -109,58 +122,58 @@ The AppImage's embedded update URL resolves to the latest release on GitHub.
 
 ---
 
-## Windows build
+## CI builds
 
-A standalone `BlueSkyDownloader.exe` is produced automatically by GitHub Actions for every release.
-No Python or dependencies need to be installed on the end-user's machine.
-
-### How it works
-
-`.github/workflows/build-windows.yml` runs on `windows-latest`:
-1. Installs Python 3.12 + `pyinstaller pyqt6 requests tqdm pillow cryptography yt-dlp`
-2. Downloads `ffmpeg.exe` + `ffprobe.exe` from BtbN static builds (latest win64-gpl)
-3. Converts `blueskydownload.png` → `blueskydownload.ico` (multi-res: 16/32/48/256 px) via Pillow
-4. Runs PyInstaller: `--onefile --windowed --collect-all PyQt6 --collect-all yt_dlp --add-binary "ffmpeg.exe;." --add-binary "ffprobe.exe;."` — produces a single portable exe
-5. Uploads `dist/BlueSkyDownloader.exe` to the GitHub release via `softprops/action-gh-release`
+The workflow file is `.github/workflows/build-windows.yml` (renamed to "Build Releases" in title).
+Both jobs run in parallel on every published release or `workflow_dispatch`.
 
 ### Triggers
 
 | Event | Behaviour |
 |---|---|
-| New release published | Builds automatically and attaches exe to that release |
-| `workflow_dispatch` | Manual trigger; requires `tag_name` input (e.g. `v1.1.0`) |
+| New release published | Both jobs build and attach assets automatically |
+| `workflow_dispatch` | Manual trigger; requires `tag_name` input (e.g. `v1.3.0`) |
 
 Manual trigger command:
 ```bash
-gh workflow run "Build Windows Executable" --repo Tamalero/blueskyDownload --ref main -f tag_name=vX.Y.Z
+gh workflow run "Build Releases" --repo Tamalero/blueskyDownload --ref main -f tag_name=vX.Y.Z
 ```
 
-### PyInstaller flags used
+### Windows build (`build-windows` job, `windows-latest`)
+
+1. Installs Python 3.12 + `pyinstaller pyqt6 requests tqdm pillow cryptography yt-dlp`
+2. Downloads `ffmpeg.exe` + `ffprobe.exe` from BtbN static builds (latest win64-gpl)
+3. Converts `blueskydownload.png` → `blueskydownload.ico` (multi-res: 16/32/48/256 px) via Pillow
+4. Runs PyInstaller `--onefile --windowed --collect-all PyQt6 --collect-all yt_dlp --add-binary "ffmpeg.exe;." --add-binary "ffprobe.exe;."`
+5. Uploads `dist/BlueSkyDownloader.exe` to the release
+
+### Linux AppImage build (`build-linux` job, `ubuntu-latest`)
+
+1. Installs Python 3.12 + system Qt libs + `pyinstaller pyqt6 requests tqdm cryptography yt-dlp`
+2. Downloads `ffmpeg` + `ffprobe` from BtbN static builds (latest linux64-gpl)
+3. Runs PyInstaller `--onefile --windowed --collect-all PyQt6 --collect-all yt_dlp --add-binary "ffmpeg:." --add-binary "ffprobe:."`
+4. Assembles a minimal AppDir with the binary, icon, desktop file, and AppRun launcher script
+5. Downloads `appimagetool` and runs it with `--appimage-extract-and-run` and `-u` (auto-generates zsync)
+6. Uploads `BlueSkyDownloader-x86_64.AppImage` + `.zsync` to the release
+
+### PyInstaller flags (both platforms)
 
 | Flag | Reason |
 |---|---|
-| `--onefile` | Single portable exe — no install needed |
-| `--windowed` | Suppresses the console window on launch |
-| `--collect-all PyQt6` | Bundles all Qt plugins including `qwindows.dll` (platform plugin required for GUI) |
-| `--collect-all yt_dlp` | Bundles all yt-dlp extractor/downloader modules (uses dynamic imports internally) |
-| `--add-binary "ffmpeg.exe;."` | Bundles static ffmpeg into bundle root (`sys._MEIPASS`) |
-| `--add-binary "ffprobe.exe;."` | Bundles static ffprobe into bundle root |
+| `--onefile` | Single portable binary — no install needed |
+| `--windowed` | No console window on launch |
+| `--collect-all PyQt6` | Bundles all Qt plugins (Windows: `qwindows.dll`; Linux: `xcb`, `wayland`) |
+| `--collect-all yt_dlp` | Bundles all yt-dlp extractor/downloader modules (uses dynamic imports) |
+| `--add-binary "ffmpeg[.exe]:."` | Static ffmpeg in bundle root (`sys._MEIPASS`) |
+| `--add-binary "ffprobe[.exe]:."` | Static ffprobe in bundle root |
 
 `--onefile` extracts to a persistent temp folder on first launch; subsequent launches reuse it.
-
-`ffmpeg.exe` and `ffprobe.exe` are downloaded in CI from BtbN static builds before PyInstaller runs.
-At runtime, `_download_video` detects `sys.frozen` and sets `yt_dlp`'s `ffmpeg_location` to `sys._MEIPASS`.
+`_download_video` detects `sys.frozen` and sets `yt_dlp`'s `ffmpeg_location` to `sys._MEIPASS`.
 
 ### yt-dlp integration
 
-`_download_video` now uses the `yt_dlp` Python API directly (no subprocess). This works on all
-platforms. On Linux, `yt-dlp` must be installed via pacman (`python-yt-dlp` or `yt-dlp`). On
-Windows, it is bundled in the exe along with ffmpeg/ffprobe — no external tools required.
-
-### Cross-compilation note
-
-The Windows exe **cannot** be built on Linux. The GitHub Actions `windows-latest` runner is
-required. Do not attempt to build the exe locally with Wine — it is not supported.
+`_download_video` uses the `yt_dlp` Python API (no subprocess). On Linux (local/AppImage local dev),
+`yt-dlp` must be installed via pacman. In the distributable AppImage and Windows exe, it is bundled.
 
 ---
 
@@ -174,10 +187,11 @@ required. Do not attempt to build the exe locally with Wine — it is not suppor
 | `v1.0.0` | `BlueSkyDownloader-x86_64.AppImage`, `BlueSkyDownloader-x86_64.AppImage.zsync`, source zip/tar.gz |
 
 When making a new release:
-1. Rebuild AppImage with the `-u` flag above (zsync auto-generated)
-2. Commit and push code changes to `main`
-3. `gh release create vX.Y.Z --title "..." --notes "..." BlueSkyDownloader-x86_64.AppImage BlueSkyDownloader-x86_64.AppImage.zsync`
-4. The Windows `.exe` is **automatically built and attached** by GitHub Actions within ~5 minutes of the release being published (no manual step needed)
+1. Commit and push code changes to `main`
+2. `gh release create vX.Y.Z --title "..." --notes "..."`
+3. GitHub Actions builds **both** the Windows exe and the self-contained Linux AppImage (+ zsync) automatically and attaches them within ~10 minutes
+
+No local AppImage rebuild needed for releases — CI handles everything.
 
 The source code zip/tar.gz is auto-attached by GitHub for every release.
 
@@ -396,8 +410,7 @@ never called with the login identifier.
 - No cross-run deduplication beyond checking if the output filename already exists on disk.
 - `yt-dlp` used as Python API — must be installed as a Python package (`yt-dlp` via pacman on Linux); bundled in the Windows exe.
 - Video downloads show an indeterminate progress bar (yt-dlp gives no byte-level callback).
-- AppImage is a thin wrapper — target machine must have `python-pyqt6`, `python-requests`,
-  `python-tqdm`, `python-cryptography`, `yt-dlp` (provides `python-yt-dlp` module), `ffmpeg` installed via pacman.
+- Distributable AppImage (CI-built) is self-contained — no system Python or pacman deps needed. The local dev AppDir is still thin and requires pacman packages.
 - Windows exe first launch may take several seconds (PyInstaller --onefile extraction to temp dir).
 - `DAYS_BACK` filtering is not implemented — all paginated results are downloaded regardless of date.
 

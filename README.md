@@ -30,14 +30,13 @@ Available as a **GUI app**, a **CLI tool**, and a portable **AppImage** for Arch
 ### Windows
 Download `BlueSkyDownloader.exe` from [Releases](https://github.com/Tamalero/blueskyDownload/releases) — no Python, yt-dlp, or ffmpeg needed. Everything is bundled.
 
-### Linux (Arch/CachyOS)
-Install dependencies via pacman:
+### Linux
+Download the AppImage from [Releases](https://github.com/Tamalero/blueskyDownload/releases) — Python, yt-dlp, and ffmpeg are all bundled. No system packages required.
 
+If running from source instead:
 ```bash
 sudo pacman -S python-requests python-tqdm python-pyqt6 python-cryptography yt-dlp ffmpeg
 ```
-
-> `yt-dlp` and `ffmpeg` are only needed for video downloads. Images work without them.
 
 ---
 
@@ -176,7 +175,7 @@ Videos are downloaded via `yt-dlp` using the HLS playlist URL exposed by the API
 ## Changelog
 
 ### v1.3.0
-- Windows exe now bundles **yt-dlp and ffmpeg** — no separate installs required for video downloads
+- Windows exe and Linux AppImage are now **fully self-contained** — Python, yt-dlp, and ffmpeg are all bundled; no separate installs required
 - Switched from yt-dlp subprocess to Python API for cleaner integration
 - yt-dlp added as a proper Python dependency
 
