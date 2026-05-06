@@ -17,7 +17,7 @@ Two entry points: a CLI (`apitest.py`) and a PyQt6 GUI (`gui.py`).
 ## Repository state (as of 2026-05-05)
 
 Git is initialized. Remote is `https://github.com/Tamalero/blueskyDownload.git`, branch `main`.
-Latest commit: `9a4d14b` — "Add Fernet encryption for stored app password (v1.2.0)"
+Latest commit: `a01edf6` — "Bundle yt-dlp + ffmpeg in Windows exe; switch to yt_dlp Python API (v1.3.0)"
 
 Committed files:
 
