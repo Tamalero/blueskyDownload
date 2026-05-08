@@ -8,9 +8,10 @@ from PyQt6.QtWidgets import (
     QGroupBox, QLabel, QLineEdit, QPushButton,
     QComboBox, QSpinBox, QDoubleSpinBox, QFileDialog,
     QTextEdit, QStatusBar, QProgressBar, QSplitter, QSizePolicy,
+    QMessageBox,
 )
-from PyQt6.QtCore import QThread, pyqtSignal, Qt
-from PyQt6.QtGui import QFont, QPixmap
+from PyQt6.QtCore import QThread, pyqtSignal, Qt, QUrl
+from PyQt6.QtGui import QFont, QPixmap, QDesktopServices
 
 import apitest as bsky
 
@@ -94,6 +95,17 @@ class DownloadWorker(QThread):
             self.done.emit(False, str(e))
 
 
+# ── Update checker ────────────────────────────────────────────────────────────
+
+class UpdateChecker(QThread):
+    update_available = pyqtSignal(str, str)   # (tag, download_url)
+
+    def run(self):
+        result = bsky.check_latest_release()
+        if result:
+            self.update_available.emit(*result)
+
+
 # ── Main window ────────────────────────────────────────────────────────────────
 
 class MainWindow(QMainWindow):
@@ -103,13 +115,23 @@ class MainWindow(QMainWindow):
         self.setMinimumWidth(620)
         self.worker: DownloadWorker | None = None
         self._current_preview_pixmap: QPixmap | None = None
+        self._update_checker: UpdateChecker | None = None
+        self._update_found = False
         self._build_ui()
         self._load_saved_credentials()
         self._load_ui_state()
+        self._check_for_updates(silent=True)
 
     # ── UI construction ────────────────────────────────────────────────────────
 
     def _build_ui(self):
+        help_menu = self.menuBar().addMenu("Help")
+        help_menu.addAction("Check for Updates…").triggered.connect(
+            lambda: self._check_for_updates(silent=False)
+        )
+        help_menu.addSeparator()
+        help_menu.addAction(f"Version {bsky.VERSION}").setEnabled(False)
+
         root = QWidget()
         self.setCentralWidget(root)
         layout = QVBoxLayout(root)
@@ -355,7 +377,13 @@ class MainWindow(QMainWindow):
         if cfg.has_option("credentials", "handle"):
             self.le_handle.setText(cfg.get("credentials", "handle"))
         if cfg.has_option("credentials", "app_password"):
-            self.le_pass.setText(bsky.get_app_password(cfg) or "")
+            pw = bsky.get_app_password(cfg)
+            if pw is not None:
+                self.le_pass.setText(pw)
+            else:
+                self.statusBar().showMessage(
+                    "Saved password could not be decrypted — please re-enter your app password.", 8000
+                )
 
     def _load_ui_state(self):
         cfg = bsky.load_config()
@@ -521,6 +549,39 @@ class MainWindow(QMainWindow):
             self.worker.cancel()
         self.btn_cancel.setEnabled(False)
         self.statusbar.showMessage("Cancelling…")
+
+    def _check_for_updates(self, silent: bool = False):
+        if self._update_checker and self._update_checker.isRunning():
+            return
+        self._update_found = False
+        self._update_checker = UpdateChecker()
+        self._update_checker.update_available.connect(self._on_update_available)
+        if not silent:
+            self._update_checker.finished.connect(self._on_update_check_finished)
+        self._update_checker.start()
+
+    def _on_update_available(self, tag: str, url: str):
+        self._update_found = True
+        dlg = QMessageBox(self)
+        dlg.setWindowTitle("Update Available")
+        dlg.setIcon(QMessageBox.Icon.Information)
+        dlg.setText(f"Version <b>{tag}</b> is available.")
+        dlg.setInformativeText(
+            f"You are running v{bsky.VERSION}. Would you like to download the update?"
+        )
+        download_btn = dlg.addButton("Download", QMessageBox.ButtonRole.AcceptRole)
+        dlg.addButton("Later", QMessageBox.ButtonRole.RejectRole)
+        dlg.exec()
+        if dlg.clickedButton() == download_btn:
+            QDesktopServices.openUrl(QUrl(url))
+
+    def _on_update_check_finished(self):
+        if not self._update_found:
+            QMessageBox.information(
+                self,
+                "No Updates",
+                f"You are already running the latest version (v{bsky.VERSION}).",
+            )
 
     def _on_done(self, ok: bool, msg: str):
         self.btn_start.setEnabled(True)

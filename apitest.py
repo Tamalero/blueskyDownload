@@ -12,7 +12,10 @@ import requests
 from tqdm import tqdm
 from cryptography.fernet import Fernet, InvalidToken
 
-VERSION = "1.3.0"
+VERSION = "1.4.0"
+
+GITHUB_REPO   = "Tamalero/blueskyDownload"
+_RELEASES_API = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 
 # --- XDG paths (Arch/CachyOS) ---
 _cfg_home = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
@@ -20,6 +23,40 @@ CONFIG_DIR  = _cfg_home / "blueskydownload"
 CONFIG_FILE = CONFIG_DIR / "config.ini"
 KEY_FILE    = CONFIG_DIR / "secret.key"
 DEFAULT_DOWNLOAD_DIR = str(Path.home() / "Pictures" / "BlueSkyDownload")
+
+
+# ── Update check ───────────────────────────────────────────────────────────────
+
+def _ver_tuple(v: str) -> tuple:
+    try:
+        return tuple(int(x) for x in v.lstrip("v").split("."))
+    except ValueError:
+        return (0,)
+
+
+def check_latest_release() -> tuple[str, str] | None:
+    """Return (tag, download_url) if a newer release exists on GitHub, else None."""
+    try:
+        resp = requests.get(
+            _RELEASES_API,
+            timeout=8,
+            headers={"User-Agent": f"BlueSkyDownloader/{VERSION}"},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        tag = data.get("tag_name", "")
+        if not tag or _ver_tuple(tag) <= _ver_tuple(VERSION):
+            return None
+        suffix = ".exe" if sys.platform == "win32" else "-x86_64.AppImage"
+        url = f"https://github.com/{GITHUB_REPO}/releases/latest"
+        for asset in data.get("assets", []):
+            if asset["name"].endswith(suffix):
+                url = asset["browser_download_url"]
+                break
+        return tag, url
+    except Exception:
+        return None
+
 
 # --- AT Protocol endpoints ---
 _BASE = "https://bsky.social/xrpc"
@@ -77,12 +114,16 @@ def encrypt_password(password: str) -> str:
     return Fernet(_get_or_create_key()).encrypt(password.encode()).decode()
 
 
-def decrypt_password(token: str) -> str:
-    """Decrypt a Fernet token. Falls back to returning the token unchanged for
-    plain-text passwords stored before encryption was added (migration path)."""
+def decrypt_password(token: str) -> str | None:
+    """Decrypt a Fernet token.
+    Returns the token unchanged for legacy plain-text passwords (migration path).
+    Returns None if the token looks like a Fernet token but can't be decrypted
+    (e.g. key file was lost), so callers don't silently use garbage as a password."""
     try:
         return Fernet(_get_or_create_key()).decrypt(token.encode()).decode()
     except (InvalidToken, Exception):
+        if token.startswith("gAAAAA"):
+            return None
         return token
 
 
@@ -158,7 +199,7 @@ def _fetch_feed(url, base_params, token, max_pages, page_size, log_fn):
     """Shared pagination loop for both likes and gallery endpoints."""
     headers = {"Authorization": f"Bearer {token}"}
     items, seen, cursor = [], set(), None
-    tty = sys.stdout.isatty()
+    tty = sys.stdout is not None and sys.stdout.isatty()
 
     with tqdm(total=max_pages, desc="Scanning", unit="pg", disable=not tty) as pbar:
         for _ in range(max_pages):
@@ -249,7 +290,7 @@ def download_media(items, download_dir, media_type="both",
         error_fn = log_fn
 
     os.makedirs(download_dir, exist_ok=True)
-    tty = sys.stdout.isatty()
+    tty = sys.stdout is not None and sys.stdout.isatty()
 
     # Pre-count total media files for the overall progress bar
     total = 0
