@@ -10,14 +10,14 @@ Two entry points: a CLI (`apitest.py`) and a PyQt6 GUI (`gui.py`).
 - **Python:** system Python 3 (no virtualenv — all deps via pacman)  
 - **XDG config:** `~/.config/blueskydownload/config.ini`  
 - **Default output:** `~/Pictures/BlueSkyDownload`
-- **Latest release:** v1.3.0 — https://github.com/Tamalero/blueskyDownload/releases/tag/v1.3.0
+- **Latest release:** v1.4.0 — https://github.com/Tamalero/blueskyDownload/releases/tag/v1.4.0
 
 ---
 
-## Repository state (as of 2026-05-05)
+## Repository state (as of 2026-05-07)
 
 Git is initialized. Remote is `https://github.com/Tamalero/blueskyDownload.git`, branch `main`.
-Latest commit: `f634126` — "Add self-contained Linux AppImage CI build job"
+Latest commit: `d280684` — "Fix Windows login bug and add in-app update checker (v1.4.0)"
 
 Committed files:
 
@@ -132,7 +132,7 @@ Both jobs run in parallel on every published release or `workflow_dispatch`.
 | Event | Behaviour |
 |---|---|
 | New release published | Both jobs build and attach assets automatically |
-| `workflow_dispatch` | Manual trigger; requires `tag_name` input (e.g. `v1.3.0`) |
+| `workflow_dispatch` | Manual trigger; requires `tag_name` input (e.g. `v1.4.0`) |
 
 Manual trigger command:
 ```bash
@@ -170,6 +170,10 @@ gh workflow run "Build Releases" --repo Tamalero/blueskyDownload --ref main -f t
 `--onefile` extracts to a persistent temp folder on first launch; subsequent launches reuse it.
 `_download_video` detects `sys.frozen` and sets `yt_dlp`'s `ffmpeg_location` to `sys._MEIPASS`.
 
+**Windows-specific note:** PyInstaller `--windowed` sets `sys.stdout = None` (no console). Any call
+to `sys.stdout.isatty()` without a None guard will crash with `AttributeError`. All tqdm calls in
+`apitest.py` use `sys.stdout is not None and sys.stdout.isatty()` for this reason.
+
 ### yt-dlp integration
 
 `_download_video` uses the `yt_dlp` Python API (no subprocess). On Linux (local/AppImage local dev),
@@ -181,6 +185,7 @@ gh workflow run "Build Releases" --repo Tamalero/blueskyDownload --ref main -f t
 
 | Tag | Assets |
 |---|---|
+| `v1.4.0` | `BlueSkyDownloader.exe`, `BlueSkyDownloader-x86_64.AppImage`, `BlueSkyDownloader-x86_64.AppImage.zsync`, source zip/tar.gz |
 | `v1.3.0` | `BlueSkyDownloader.exe`, `BlueSkyDownloader-x86_64.AppImage`, `BlueSkyDownloader-x86_64.AppImage.zsync`, source zip/tar.gz |
 | `v1.2.0` | `BlueSkyDownloader.exe`, `BlueSkyDownloader-x86_64.AppImage`, `BlueSkyDownloader-x86_64.AppImage.zsync`, source zip/tar.gz |
 | `v1.1.0` | `BlueSkyDownloader.exe`, `BlueSkyDownloader-x86_64.AppImage`, `BlueSkyDownloader-x86_64.AppImage.zsync`, source zip/tar.gz |
@@ -233,17 +238,21 @@ All functions are importable (no module-level side effects). `__main__` block ha
 
 | Symbol | Purpose |
 |---|---|
-| `VERSION` | Current version string (`"1.2.0"`) |
+| `VERSION` | Current version string (`"1.4.0"`) |
+| `GITHUB_REPO` | `"Tamalero/blueskyDownload"` — used by update checker and asset URL construction |
+| `_RELEASES_API` | GitHub Releases API URL for the repo |
 | `CONFIG_FILE` | `Path` to `~/.config/blueskydownload/config.ini` |
 | `KEY_FILE` | `Path` to `~/.config/blueskydownload/secret.key` (Fernet key, mode 600) |
 | `DEFAULT_DOWNLOAD_DIR` | `~/Pictures/BlueSkyDownload` |
+| `_ver_tuple(v)` | Parse a version string like `"v1.4.0"` → `(1, 4, 0)` for numeric comparison |
+| `check_latest_release()` | Query GitHub Releases API; return `(tag, download_url)` if newer than `VERSION`, else `None` |
 | `load_config()` | Reads full config (credentials + last_run sections) |
 | `save_config(handle, pw)` | Read-modify-write — encrypts password before storing; preserves `[last_run]` |
 | `save_ui_state(dict)` | Writes `[last_run]` section without touching credentials |
 | `_get_or_create_key()` | Returns Fernet key bytes; generates + saves key file on first call |
 | `encrypt_password(pw)` | Fernet-encrypt a plain-text password → base64 token string |
-| `decrypt_password(token)` | Decrypt a Fernet token → plain text; returns token unchanged on failure (migration) |
-| `get_app_password(cfg)` | Read + decrypt `app_password` from loaded config; returns `None` if absent |
+| `decrypt_password(token)` | Decrypt a Fernet token → plain text; returns `None` if token looks like Fernet but key is wrong/missing; returns token unchanged for legacy plaintext passwords (migration path) |
+| `get_app_password(cfg)` | Read + decrypt `app_password` from loaded config; returns `None` if absent or undecryptable |
 | `bluesky_login(id, pw)` | POST `com.atproto.server.createSession` → returns session dict |
 | `get_did_for_handle(handle, jwt)` | Only called for third-party targets; own DID comes from session |
 | `extract_images_from_post(post)` | Returns list of `fullsize` CDN URLs |
@@ -254,6 +263,26 @@ All functions are importable (no module-level side effects). `__main__` block ha
 | `fetch_likes_media(jwt, did, ...)` | Wraps `_fetch_feed` → `getActorLikes` |
 | `fetch_user_gallery(jwt, did, ...)` | Wraps `_fetch_feed` → `getAuthorFeed?filter=posts_with_media` |
 | `download_media(items, dir, ...)` | Downloads images via streaming `requests`, videos via `yt-dlp`; returns stats dict |
+
+#### `check_latest_release()` detail
+
+Calls `_RELEASES_API` with an 8-second timeout. Compares `tag_name` to `VERSION` using `_ver_tuple`
+(numeric tuple comparison — handles `1.10.0 > 1.9.0` correctly, unlike string comparison).
+Returns the direct asset URL for the platform-appropriate binary (`.exe` on Windows,
+`-x86_64.AppImage` on Linux); falls back to the releases page URL if no matching asset is found.
+All network/parse errors are swallowed — returns `None` silently.
+
+#### `decrypt_password` — Windows key-loss safety
+
+`decrypt_password` distinguishes three cases:
+1. **Valid Fernet token + correct key** → returns plaintext password
+2. **Looks like a Fernet token** (`startswith("gAAAAA")`) **but decryption fails** (key lost/different)
+   → returns `None` — prevents the encrypted token from being silently used as a password → 401
+3. **Does not look like a Fernet token** (legacy plaintext, stored before encryption was added)
+   → returns the value unchanged (migration path)
+
+`get_app_password` returns `None` in cases 2 and 3-missing. The GUI leaves the password field empty
+and shows a status bar warning when this happens, prompting the user to re-enter their password.
 
 #### `download_media` full signature
 
@@ -287,7 +316,8 @@ Images are downloaded with `stream=True`; Content-Type extension fix happens bef
 so the filename passed to `file_progress_fn` is always the final correct name.
 `total_size=0` (no Content-Length header) signals the GUI to show an indeterminate progress bar.
 
-tqdm is auto-disabled when `sys.stdout.isatty()` is False (GUI context).
+tqdm is disabled when `sys.stdout is None` (PyInstaller `--windowed` on Windows) or when
+`sys.stdout.isatty()` is `False` (GUI/pipe context). Both conditions are checked together.
 
 ### `gui.py` — PyQt6 frontend
 
@@ -314,9 +344,23 @@ After `download_media` returns, the worker emits a summary line via `self.log`:
 ```
 The `done` signal message is the compact form: `"Done — N files · X.X MB"`.
 
+#### `UpdateChecker(QThread)`
+
+Signals:
+
+| Signal | Signature | Purpose |
+|---|---|---|
+| `update_available` | `(str, str)` | `(tag, download_url)` emitted when a newer version is found |
+
+Calls `bsky.check_latest_release()` in the background. Emits nothing if already on the latest
+version or if the network call fails. Uses the inherited `QThread.finished` signal for
+"check complete but no update" feedback in the manual-check path.
+
 #### `MainWindow(QMainWindow)` — UI layout
 
 ```
+Menu bar
+  └── Help → Check for Updates… / (version label, disabled)
 Credentials Group      (handle, app password)
 Options Group          (mode, target handle, media type, pages, post delay)
 Output Folder Group    (path + Browse button)
@@ -327,6 +371,22 @@ QSplitter (horizontal, non-collapsible):
   └── Log Group        (QTextEdit — read-only, monospace, HTML-colored)
 StatusBar
 ```
+
+#### Update checker — startup + manual flow
+
+`_check_for_updates(silent)` is called:
+- **At startup** (`silent=True`): started at the end of `__init__`; only shows the update dialog
+  if a newer version is found; no "already up to date" message.
+- **Help → Check for Updates…** (`silent=False`): connects `finished` in addition to
+  `update_available`; shows "already running the latest version" if `_update_found` is still
+  `False` when the thread finishes.
+
+Guards against double-starts: returns early if an `UpdateChecker` is already running.
+
+`_on_update_available(tag, url)`:
+- Sets `_update_found = True`
+- Shows a `QMessageBox` with **Download** (AcceptRole) and **Later** (RejectRole) buttons
+- "Download" → `QDesktopServices.openUrl(QUrl(url))` opens the direct asset URL in the browser
 
 #### Post Delay widget — `_build_delay_widget()`
 
@@ -369,6 +429,8 @@ Non-image files (videos) show `"▶ Video"` text instead.
   `delay_type`, `delay_fixed`, `delay_min`, `delay_max`.
 - Both sections loaded on startup. `save_config` and `save_ui_state` both use read-modify-write
   so they never clobber each other's section.
+- If the stored password cannot be decrypted (key file lost), the password field is left empty and
+  a status bar message prompts the user to re-enter. The handle field is still populated.
 
 #### Log coloring
 
@@ -413,6 +475,9 @@ never called with the login identifier.
 - Distributable AppImage (CI-built) is self-contained — no system Python or pacman deps needed. The local dev AppDir is still thin and requires pacman packages.
 - Windows exe first launch may take several seconds (PyInstaller --onefile extraction to temp dir).
 - `DAYS_BACK` filtering is not implemented — all paginated results are downloaded regardless of date.
+- The in-app update checker only opens the browser to the download URL — it does not auto-install.
+  On Linux, `AppImageUpdate` (separate tool) handles delta updates; the in-app checker is primarily
+  useful on Windows.
 
 ---
 
